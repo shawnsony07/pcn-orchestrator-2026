@@ -246,9 +246,17 @@ async def receive_push(request: Request):
 
     logger.info("Push received for %s, historyId=%s", email_address, push_history_id)
 
-    # 3. Determine starting historyId (Firestore first, fall back to push payload)
+    # 3. Determine starting historyId.
+    # Gmail history.list(startHistoryId=X) is EXCLUSIVE — it returns records with
+    # historyId > X, not >= X.  The push payload's historyId IS the record we want,
+    # so on first run (no stored state) we subtract 1 to ensure the triggering
+    # message is included in the query window.
     stored_history_id = get_last_history_id()
-    start_history_id = stored_history_id if stored_history_id else push_history_id
+    if stored_history_id:
+        start_history_id = stored_history_id
+    else:
+        # First run: back up one so history.list captures the current push event
+        start_history_id = str(int(push_history_id) - 1)
 
     # 4. Fetch new messages
     gmail = get_gmail()
@@ -256,9 +264,9 @@ async def receive_push(request: Request):
 
     if not message_ids:
         logger.info("No new messages found since historyId=%s", start_history_id)
-        # Still advance the stored historyId to the push value
-        if push_history_id and push_history_id > start_history_id:
-            set_last_history_id(push_history_id)
+        # Always advance stored historyId to the push value so the next push
+        # doesn't re-scan the same (empty) window.
+        set_last_history_id(push_history_id)
         return {"status": "ok", "messages_processed": 0}
 
     processed = 0
