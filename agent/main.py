@@ -234,15 +234,18 @@ async def receive_event(request: Request):
             parts=[genai_types.Part(text=prompt)],
         )
 
-        # ADK InMemorySessionService requires the session to exist before run().
-        session_service.create_session(
+        # InMemorySessionService.create_session is a coroutine — must be awaited.
+        # Creating it first is required before runner.run_async() looks it up.
+        await session_service.create_session(
             app_name="pcn_triage",
             user_id="system",
             session_id=session_id,
         )
 
+        # Use run_async (async for) since we are already inside an async FastAPI
+        # endpoint — avoids the background-thread / event-loop conflict.
         final_response = ""
-        for event in runner.run(
+        async for event in runner.run_async(
             user_id="system",
             session_id=session_id,
             new_message=user_message,
