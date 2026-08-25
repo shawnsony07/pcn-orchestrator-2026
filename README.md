@@ -7,7 +7,7 @@ Gmail API, Pub/Sub, Firestore, and Cloud Run.
 ## Architecture
 
 ```
-Gmail inbox (shawngdg2005@gmail.com)
+Gmail inbox (watched address)
     │  users.watch() push notification
     ▼
 Pub/Sub topic (gmail-pcn-notifications)
@@ -36,11 +36,10 @@ Firestore: agent_runs collection (audit log)
 1. **gcloud CLI** — [Install](https://cloud.google.com/sdk/docs/install), then:
    ```bash
    gcloud auth login
-   gcloud config set project pcn-orchestrator-2026
+   gcloud config set project <your-gcp-project-id>
    ```
 2. **Python 3.11+**
 3. **A GCP project** with the infrastructure already provisioned (see AGENTS.md §0).
-   The project `pcn-orchestrator-2026` already has all infrastructure live.
 
 ---
 
@@ -58,18 +57,18 @@ Edit `.env` and fill in all values:
 
 | Variable | Description |
 |---|---|
-| `GCP_PROJECT_ID` | GCP project ID (`pcn-orchestrator-2026`) |
-| `GCP_REGION` | GCP region (`asia-south1`) |
+| `GCP_PROJECT_ID` | Your GCP project ID |
+| `GCP_REGION` | GCP region where services are deployed (e.g. `asia-south1`) |
 | `GITHUB_TOKEN` | Fine-grained PAT with `Contents: write` + `Pull requests: write` on the target repo |
 | `GITHUB_TARGET_REPO` | Target repo for HAL updates (`owner/repo` or full HTTPS URL) |
 | `GMAIL_CLIENT_ID` | OAuth 2.0 client ID from GCP Console |
 | `GMAIL_CLIENT_SECRET` | OAuth 2.0 client secret |
-| `GMAIL_REFRESH_TOKEN` | Refresh token from `scripts/gmail_oauth_setup.py` (already obtained) |
-| `GMAIL_WATCHED_ADDRESS` | `shawngdg2005@gmail.com` |
-| `GMAIL_PUBSUB_TOPIC` | `projects/pcn-orchestrator-2026/topics/gmail-pcn-notifications` |
-| `GCS_RAW_DOCUMENTS_BUCKET` | `pcn-raw-documents` |
-| `GCS_ECO_OUTPUTS_BUCKET` | `eco-outputs` |
-| `SERVICE_URL` | Each service's own Cloud Run URL (for OIDC audience check) |
+| `GMAIL_REFRESH_TOKEN` | Refresh token obtained by running `scripts/gmail_oauth_setup.py` |
+| `GMAIL_WATCHED_ADDRESS` | Gmail address to watch for PCN emails |
+| `GMAIL_PUBSUB_TOPIC` | Full Pub/Sub topic name (`projects/<project>/topics/<topic>`) |
+| `GCS_RAW_DOCUMENTS_BUCKET` | GCS bucket name for raw PDF uploads |
+| `GCS_ECO_OUTPUTS_BUCKET` | GCS bucket name for generated ECO PDF outputs |
+| `SERVICE_URL` | Each service's own Cloud Run URL (used as OIDC token audience) |
 
 ### 2. Authenticate with ADC (impersonate service account)
 
