@@ -234,6 +234,13 @@ async def receive_event(request: Request):
             parts=[genai_types.Part(text=prompt)],
         )
 
+        # ADK InMemorySessionService requires the session to exist before run().
+        session_service.create_session(
+            app_name="pcn_triage",
+            user_id="system",
+            session_id=session_id,
+        )
+
         final_response = ""
         for event in runner.run(
             user_id="system",
