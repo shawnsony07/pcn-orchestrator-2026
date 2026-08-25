@@ -6,28 +6,10 @@ Gmail API, Pub/Sub, Firestore, and Cloud Run.
 
 ## Architecture
 
-```
-Gmail inbox (watched address)
-    │  users.watch() push notification
-    ▼
-Pub/Sub topic (gmail-pcn-notifications)
-    │  push subscription
-    ▼
-Cloud Run: pcn-ingestor
-    │  extracts PDF attachment
-    │  uploads to GCS (pcn-raw-documents)
-    ▼
-Eventarc trigger (GCS finalize)
-    │
-    ▼
-Cloud Run: pcn-agent
-    │  ADK Agent (gemini-3.5-flash)
-    │  ├─ query_firestore_inventory  → Firestore (inventory collection)
-    │  ├─ github_create_pr           → GitHub (HAL header updates)
-    │  └─ generate_eco_pdf           → GCS (eco-outputs bucket)
-    ▼
-Firestore: agent_runs collection (audit log)
-```
+<p align="center">
+  <img src="architecture.png" width="500" alt="PCN Triage Orchestrator — Pipeline Architecture" />
+</p>
+
 
 ---
 
