@@ -3,6 +3,13 @@
 secrets/
 client_secret*.json
 
+# Cloud Run service YAML exports (contain env var values)
+pcn-agent.yaml
+pcn-ingestor.yaml
+
+# Generated test artifacts
+test_pcn_*.pdf
+
 # Python
 __pycache__/
 *.pyc
