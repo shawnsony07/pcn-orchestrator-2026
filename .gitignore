@@ -1,0 +1,22 @@
+# Secrets - never commit
+.env
+secrets/
+client_secret*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local logs / temp
+*.log

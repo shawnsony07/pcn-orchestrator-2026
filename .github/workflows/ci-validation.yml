@@ -1,0 +1,73 @@
+name: CI Validation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  validate-ingestor:
+    name: Validate ingestor/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ingestor dependencies
+        working-directory: ingestor
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Lint ingestor with flake8
+        working-directory: ingestor
+        run: |
+          pip install flake8
+          flake8 main.py --max-line-length=120
+
+      - name: Smoke-test ingestor import
+        working-directory: ingestor
+        env:
+          # Provide stub env vars so module-level os.environ[] calls don't fail at import
+          GCS_RAW_DOCUMENTS_BUCKET: stub-bucket
+          GMAIL_CLIENT_ID: stub-id
+          GMAIL_CLIENT_SECRET: stub-secret
+          GMAIL_REFRESH_TOKEN: stub-token
+          SERVICE_URL: ""
+        run: python -c "import main"
+
+  validate-agent:
+    name: Validate agent/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install agent dependencies
+        working-directory: agent
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Lint agent with flake8
+        working-directory: agent
+        run: |
+          pip install flake8
+          flake8 main.py tools.py --max-line-length=120
+
+      - name: Smoke-test agent import
+        working-directory: agent
+        env:
+          GCP_PROJECT_ID: stub-project
+          GCP_REGION: asia-south1
+          GCS_RAW_DOCUMENTS_BUCKET: stub-bucket
+          GITHUB_TARGET_REPO: owner/repo
+          GITHUB_TOKEN: stub-token
+          GCS_ECO_OUTPUTS_BUCKET: stub-eco-bucket
+          SERVICE_URL: ""
+        run: python -c "import main"
