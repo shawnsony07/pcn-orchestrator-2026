@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 GCP_PROJECT_ID = os.environ["GCP_PROJECT_ID"]
 GCP_REGION = os.environ["GCP_REGION"]
-SERVICE_URL = os.environ.get("SERVICE_URL", "")  # Own Cloud Run URL for OIDC audience
+# Strip trailing slash — Eventarc OIDC tokens may be issued with the trailing-slash
+# form of the Cloud Run URL; normalise once here so both forms are accepted.
+SERVICE_URL = os.environ.get("SERVICE_URL", "").rstrip("/")
 GCS_RAW_DOCUMENTS_BUCKET = os.environ["GCS_RAW_DOCUMENTS_BUCKET"]
 GITHUB_TARGET_REPO = os.environ.get("GITHUB_TARGET_REPO", "")
 
@@ -134,8 +136,14 @@ def verify_oidc_token(authorization_header: str) -> None:
     token = authorization_header.split("Bearer ", 1)[1]
     try:
         request = google_requests.Request()
-        audience = SERVICE_URL if SERVICE_URL else None
-        id_token.verify_oauth2_token(token, request, audience=audience)
+        if SERVICE_URL:
+            try:
+                id_token.verify_oauth2_token(token, request, audience=SERVICE_URL)
+            except Exception:
+                # Retry with trailing slash — Eventarc may issue either form
+                id_token.verify_oauth2_token(token, request, audience=SERVICE_URL + "/")
+        else:
+            id_token.verify_oauth2_token(token, request, audience=None)
     except Exception as exc:
         logger.warning("OIDC token verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid OIDC token") from exc

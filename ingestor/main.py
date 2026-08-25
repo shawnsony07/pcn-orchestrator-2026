@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Config from environment
 # ---------------------------------------------------------------------------
-SERVICE_URL = os.environ.get("SERVICE_URL", "")  # Own Cloud Run URL for OIDC audience check
+# Strip trailing slash — Pub/Sub OIDC tokens are issued with the trailing-slash
+# form of the Cloud Run URL; normalise once here so both forms are accepted.
+SERVICE_URL = os.environ.get("SERVICE_URL", "").rstrip("/")
 GCS_RAW_DOCUMENTS_BUCKET = os.environ["GCS_RAW_DOCUMENTS_BUCKET"]
 
 GMAIL_CLIENT_ID = os.environ["GMAIL_CLIENT_ID"]
@@ -98,9 +100,19 @@ def verify_oidc_token(authorization_header: str) -> None:
     try:
         request = google_requests.Request()
         # Audience is this service's own URL (set as SERVICE_URL env var at deploy time).
-        # In development without SERVICE_URL, skip strict audience check.
-        audience = SERVICE_URL if SERVICE_URL else None
-        id_token.verify_oauth2_token(token, request, audience=audience)
+        # Accept both trailing-slash and no-trailing-slash forms because Pub/Sub
+        # issues tokens with the slash form while SERVICE_URL is typically set
+        # without it. verify_oauth2_token accepts a single string audience;
+        # we try the no-slash form first, then the slash form on failure.
+        if SERVICE_URL:
+            try:
+                id_token.verify_oauth2_token(token, request, audience=SERVICE_URL)
+            except Exception:
+                # Retry with trailing slash — Pub/Sub may issue either form
+                id_token.verify_oauth2_token(token, request, audience=SERVICE_URL + "/")
+        else:
+            # Development: no SERVICE_URL set, skip audience check
+            id_token.verify_oauth2_token(token, request, audience=None)
     except Exception as exc:
         logger.warning("OIDC token verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid OIDC token") from exc
