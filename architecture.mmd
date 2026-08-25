@@ -1,0 +1,32 @@
+flowchart TD
+    A["📧 Gmail Inbox\n(watched address)"]
+    B["Pub/Sub Topic\ngmail-pcn-notifications"]
+    C["Cloud Run: pcn-ingestor\n(FastAPI)"]
+    D[("GCS Bucket\npcn-raw-documents")]
+    E["Eventarc Trigger\ngoogle.cloud.storage.object.v1.finalized"]
+    F["Cloud Run: pcn-agent\nADK Agent · gemini-3.5-flash"]
+    G[("Firestore\ninventory")]
+    H["GitHub\nHAL repo"]
+    I[("GCS Bucket\neco-outputs")]
+    J[("Firestore\nagent_runs · audit log")]
+
+    A -->|"users.watch() push notification"| B
+    B -->|"Pub/Sub push subscription"| C
+    C -->|"extracts PDF attachment\nuploads object"| D
+    D -->|"GCS finalize event"| E
+    E -->|"CloudEvent POST"| F
+    F -->|"query_firestore_inventory"| G
+    F -->|"github_create_pr"| H
+    F -->|"generate_eco_pdf"| I
+    F -->|"writes run record"| J
+
+    style A fill:#1a1f2e,stroke:#00b4d8,color:#fff
+    style B fill:#1a1f2e,stroke:#00b4d8,color:#fff
+    style C fill:#1a1f2e,stroke:#00b4d8,color:#fff
+    style D fill:#162032,stroke:#4fc3f7,color:#fff
+    style E fill:#1a1f2e,stroke:#00b4d8,color:#fff
+    style F fill:#0d2137,stroke:#00e5ff,color:#fff,stroke-width:2px
+    style G fill:#162032,stroke:#4fc3f7,color:#fff
+    style H fill:#1a1f2e,stroke:#00b4d8,color:#fff
+    style I fill:#162032,stroke:#4fc3f7,color:#fff
+    style J fill:#162032,stroke:#4fc3f7,color:#fff
