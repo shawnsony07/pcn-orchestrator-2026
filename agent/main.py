@@ -77,11 +77,18 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    to check if it exists in the internal inventory and retrieve any known replacement
    mappings.
 
-4. Based on the PCN content and inventory data, determine which HAL (Hardware Abstraction
-   Layer) header files in the target repository need updating to reference the replacement
-   part. Generate the minimal, correct HAL changes.
+   CRITICAL INVENTORY RULE: If query_firestore_inventory returns {"found": false} for a
+   part number, you MUST NOT invent, guess, or suggest a replacement part under any
+   circumstances. Do not call github_create_pr or generate_eco_pdf for that part.
+   Report it as unresolved in your structured output with replacement_found: false and
+   no pr_url or eco_url for that part. Fabricating a replacement when the inventory
+   does not confirm one is a critical failure.
 
-5. Call github_create_pr with:
+4. For parts where query_firestore_inventory returns {"found": true}, determine which
+   HAL (Hardware Abstraction Layer) header files in the target repository need updating
+   to reference the replacement part. Generate the minimal, correct HAL changes.
+
+5. For each part where inventory was found, call github_create_pr with:
    - repo_url: the target GitHub repository URL provided in your prompt.
    - part_number: the primary affected part number you identified.
    - gcs_object_name: the GCS object name provided in your prompt.
@@ -90,7 +97,8 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
      NOT an invented subdirectory path (e.g. NOT "hal/hal_ina219.h"). The tool will
      place the file correctly in the repository.
 
-6. Call generate_eco_pdf with a comprehensive ECO report string that includes:
+6. For each part where inventory was found and a PR was created, call generate_eco_pdf
+   with a comprehensive ECO report string that includes:
    - Part number affected.
    - PCN summary.
    - Inventory status.
@@ -104,8 +112,8 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    {
        "extracted_part_number": "...",
        "replacement_found": true/false,
-       "pr_url": "...",
-       "eco_url": "..."
+       "pr_url": "..." or null,
+       "eco_url": "..." or null
    }
 """
 
@@ -316,6 +324,11 @@ async def receive_event(request: Request):
                     replacement_found = data.get("replacement_found")
                     pr_url = data.get("pr_url")
                     eco_url = data.get("eco_url")
+                    # If the agent correctly found no inventory match, use distinct status
+                    if replacement_found is False:
+                        status = "NO_INVENTORY_MATCH"
+                    else:
+                        status = "COMPLETED"
                 except Exception as exc:
                     logger.warning("Failed to parse structured JSON from agent response: %s", exc)
                     status = "COMPLETED_UNSTRUCTURED"
