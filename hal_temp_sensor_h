@@ -1,0 +1,7 @@
+#ifndef HAL_TEMP_SENSOR_H
+#define HAL_TEMP_SENSOR_H
+
+/* Replaced obsolete BME280 with replacement BME688 */
+#define ACTIVE_SENSOR_BME688
+
+#endif // HAL_TEMP_SENSOR_H
