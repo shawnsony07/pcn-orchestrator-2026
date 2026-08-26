@@ -1,0 +1,7 @@
+#ifndef HAL_BME688_H
+#define HAL_BME688_H
+
+// Updated BME280 to BME688 replacement
+#define SENSOR_TYPE_BME688
+
+#endif // HAL_BME688_H
