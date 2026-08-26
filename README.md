@@ -265,7 +265,7 @@ The ingestion sequence translates raw email into structured GCS storage.
 4. **Extraction**: Any PDF attached to the verified email is downloaded and uploaded to the `pcn-raw-documents` GCS bucket.
 
 <p align="center">
-  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="550" />
+  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="650" />
   <br>
   <em>Figure 1: Ingestion sequence diagram detailing the automated intake of incoming emails via Gmail push notifications, payload extraction, and subsequent upload of raw PCN PDFs to Google Cloud Storage.</em>
 </p>
@@ -283,7 +283,7 @@ State is passed forward deterministically: the structured JSON output of one sta
 By executing stages via a manual `run_stage_with_retry` wrapper, the architecture guarantees that a failure in Stage 3 (e.g. a GitHub API timeout) only retries Stage 3, rather than redundantly invoking the expensive, multimodal Stage 1 PDF extraction again.
 
 <p align="center">
-  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Flow" width="450" />
+  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Flow" width="650" />
   <br>
   <em>Figure 2: Flow chart of the 3-Stage Multi-Agent pipeline, demonstrating the resilient state passing via JSON parsing and strictly separated Google ADK Runner boundaries.</em>
 </p>
@@ -293,7 +293,7 @@ By executing stages via a manual `run_stage_with_retry` wrapper, the architectur
 The overall C4 architecture displays how the orchestrator connects external triggers and APIs (Gmail, GitHub, Vertex AI) to internal managed state (Firestore, Cloud Storage).
 
 <p align="center">
-  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="450" />
+  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="750" />
   <br>
   <em>Figure 3: High-level System Architecture using the C4 model, illustrating the fully decoupled microservices, external APIs, and internal state persistence within Firestore.</em>
 </p>
