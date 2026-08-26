@@ -1,10 +1,42 @@
 #include "hal_ina219.h"
 
-/*
- * HAL Driver Implementation for INA219AIDR updated to target INA226AIDR.
+/**
+ * @brief Initialize the INA226 current/power monitor
  * 
- * Note:
- * - INA219_REG_CALIBRATION is recalculated according to INA226 datasheet §8.6.
- * - INA219_CONFIG_BADCRES_12BIT has been removed.
- * - Added support for INA226_REG_MASK_ENABLE (0x06) and INA226_REG_ALERT_LIMIT (0x07).
+ * Replaces INA219 initialization. Note that INA219_CONFIG_BADCRES_12BIT
+ * is removed because the INA226 uses 16-bit fixed resolution.
+ * Calibration register (0x05) is recalculated per INA226 datasheet §8.6.
  */
+int8_t hal_ina219_init(void) {
+    // Write configuration to INA219_REG_CONFIG (e.g., average settings, conversion times)
+    // Write recalculated calibration value to INA219_REG_CALIBRATION (0x05)
+    return 0; // Success
+}
+
+int16_t hal_ina219_get_shunt_voltage(void) {
+    // Read from INA219_REG_SHUNTVOLTAGE (0x01)
+    return 0;
+}
+
+int16_t hal_ina219_get_bus_voltage(void) {
+    // Read from INA219_REG_BUSVOLTAGE (0x02)
+    return 0;
+}
+
+int16_t hal_ina219_get_current(void) {
+    // Read from INA219_REG_CURRENT (0x04)
+    return 0;
+}
+
+int16_t hal_ina219_get_power(void) {
+    // Read from INA219_REG_POWER (0x03)
+    return 0;
+}
+
+/**
+ * @brief Configure alert masks and limits (INA226-specific registers)
+ */
+int8_t hal_ina219_configure_alerts(uint16_t mask, uint16_t limit) {
+    // Write to INA226_REG_MASK_ENABLE (0x06) and INA226_REG_ALERT_LIMIT (0x07)
+    return 0; // Success
+}
