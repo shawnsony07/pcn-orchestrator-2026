@@ -1,0 +1,13 @@
+#ifndef HAL_CONFIG_H
+#define HAL_CONFIG_H
+
+/*
+ * Hardware Abstraction Layer Configuration
+ * Generated automatically due to EOL of STM32F103C8T6
+ * Replacement: STM32F103CBT6 (pin-for-pin compatible, 2x flash capacity)
+ */
+
+#define MCU_STM32F103CBT6
+#define MCU_FLASH_SIZE_KB 128
+
+#endif // HAL_CONFIG_H
