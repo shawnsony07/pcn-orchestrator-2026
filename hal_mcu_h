@@ -1,0 +1,8 @@
+#ifndef HAL_MCU_H
+#define HAL_MCU_H
+
+// Affected Part: STM32F103C8T6 (EOL)
+// Recommended Replacement: STM32F103CBT6 (pin-for-pin compatible, 2x flash capacity)
+#define TARGET_MCU_STM32F103CBT6
+
+#endif // HAL_MCU_H
