@@ -295,7 +295,7 @@ The overall C4 architecture displays how the orchestrator connects external trig
 <p align="center">
   <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="750" />
   <br>
-  <em>Figure 3: High-level System Architecture using the C4 model, illustrating the fully decoupled microservices, external APIs, and internal state persistence within Firestore.</em>
+  <em>Figure 3: High-level System Architecture illustrating the fully decoupled microservices, external APIs, and internal state persistence within Firestore.</em>
 </p>
 
 ---

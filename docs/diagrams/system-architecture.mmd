@@ -1,31 +1,51 @@
-C4Container
-    title PCN Triage Orchestrator - System Architecture
+%%{init: {'theme': 'default'}}%%
+flowchart TD
+    %% Define External Systems
+    subgraph External[External Services]
+        Gmail["Gmail API Push"]
+        Vertex["Vertex AI (Gemini 3.5 Flash)"]
+        GitHub["GitHub (Target Repo)"]
+    end
 
-    Person(gmail_api, "Gmail API Push", "pushes new email notifications")
+    %% Define Orchestrator System
+    subgraph System[PCN Triage Orchestrator]
+        PubSub[("Pub/Sub (Message Broker)")]
+        Ingestor["pcn-ingestor (Cloud Run)"]
+        GCS_Raw[("pcn-raw-documents (GCS)")]
+        Eventarc{"Eventarc (Event Router)"}
+        Agent["pcn-agent (Cloud Run)"]
+        Firestore[("Firestore (NoSQL Database)")]
+        GCS_Eco[("eco-outputs (GCS)")]
+    end
 
-    System_Boundary(pcn_system, "PCN Triage Orchestrator") {
-        Container(pubsub, "Pub/Sub", "Message Broker", "Receives pushes from Gmail API")
-        Container(ingestor, "pcn-ingestor", "Cloud Run", "Fetches email, extracts PDF, uploads to GCS")
-        Container(gcs_raw, "pcn-raw-documents", "Google Cloud Storage", "Stores incoming PCN PDFs")
-        Container(eventarc, "Eventarc", "Event Router", "Triggers agent on new file upload")
-        Container(agent, "pcn-agent", "Cloud Run", "Runs Multi-Agent Triage Pipeline")
-        ContainerDb(firestore, "Firestore", "NoSQL Database", "State persistence and Inventory lookup")
-        Container(gcs_eco, "eco-outputs", "Google Cloud Storage", "Stores generated ECO PDFs")
-    }
-
-    System_Ext(vertex, "Vertex AI", "Gemini 3.5 Flash LLM")
-    System_Ext(github, "GitHub", "Target repository for Pull Requests")
-
-    Rel_R(gmail_api, pubsub, "Sends push notification", "HTTPS")
-    Rel_D(pubsub, ingestor, "Invokes endpoint", "OIDC Push")
-    Rel_D(ingestor, gcs_raw, "Uploads raw PDF")
-    Rel_L(ingestor, firestore, "Maintains Gmail sync state")
-    Rel_D(gcs_raw, eventarc, "Triggers on finalize")
-    Rel_D(eventarc, agent, "Invokes endpoint", "CloudEvent")
+    %% Define Relationships
+    Gmail -- "Sends push notification\n(HTTPS)" --> PubSub
+    PubSub -- "Invokes endpoint\n(OIDC Push)" --> Ingestor
+    Ingestor -- "Maintains sync state" --> Firestore
+    Ingestor -- "Uploads raw PDF" --> GCS_Raw
     
-    Rel_R(agent, vertex, "Extracts part numbers")
-    Rel_U(agent, firestore, "Queries inventory & logs run state")
-    Rel_L(agent, github, "Creates PR")
-    Rel_D(agent, gcs_eco, "Uploads ECO PDF")
+    GCS_Raw -- "Triggers on finalize" --> Eventarc
+    Eventarc -- "Invokes endpoint\n(CloudEvent)" --> Agent
+    
+    Agent -- "Extracts part numbers" --> Vertex
+    Agent <-- "Queries inventory\n& logs run state" --> Firestore
+    Agent -- "Creates PR" --> GitHub
+    Agent -- "Uploads ECO PDF" --> GCS_Eco
 
-    UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="1")
+    %% Styling
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef cloudRun fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
+    classDef database fill:#00796B,stroke:#004D40,stroke-width:2px,color:#fff;
+    classDef storage fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px;
+    classDef broker fill:#FFF3E0,stroke:#FF9800,stroke-width:2px;
+    classDef external fill:#424242,stroke:#212121,stroke-width:2px,color:#fff;
+    classDef ai fill:#5E35B1,stroke:#311B92,stroke-width:2px,color:#fff;
+    classDef email fill:#E53935,stroke:#B71C1C,stroke-width:2px,color:#fff;
+
+    class Ingestor,Agent cloudRun;
+    class Firestore database;
+    class GCS_Raw,GCS_Eco storage;
+    class PubSub,Eventarc broker;
+    class GitHub external;
+    class Vertex ai;
+    class Gmail email;
