@@ -1,0 +1,7 @@
+#ifndef HAL_SENSOR_H
+#define HAL_SENSOR_H
+
+// Updated via PCN workflow: BME280 -> BME688
+#define ACTIVE_SENSOR_BME688
+
+#endif // HAL_SENSOR_H
