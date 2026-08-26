@@ -1,0 +1,14 @@
+#ifndef HAL_POWER_H
+#define HAL_POWER_H
+
+/*
+ * Hardware Abstraction Layer for Power Management
+ *
+ * Automatically updated via PCN processing pipeline.
+ * Discontinued: TLE4275G-LEGACY
+ * Replacement: TLE4275G
+ */
+
+#define HAL_POWER_REGULATOR_PART "TLE4275G"
+
+#endif /* HAL_POWER_H */
