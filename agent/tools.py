@@ -75,6 +75,7 @@ def read_pcn_document(gcs_uri: str) -> dict:
         logger.error("Failed to read PCN document %s: %s", gcs_uri, exc)
         return {"error": str(exc)}
 
+
 # ---------------------------------------------------------------------------
 # Shared GCP clients
 # ---------------------------------------------------------------------------
