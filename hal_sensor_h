@@ -1,0 +1,11 @@
+#ifndef HAL_SENSOR_H
+#define HAL_SENSOR_H
+
+/*
+ * HAL Sensor Configuration Header
+ * Note: BME280 is obsolete (PCN ST-PCN-2026-1187). Replaced by BME688.
+ */
+
+#define SENSOR_MODEL_BME688
+
+#endif /* HAL_SENSOR_H */
