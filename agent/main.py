@@ -67,8 +67,11 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
 1. Read the attached PCN PDF document natively. Do not guess or hallucinate part numbers — use ONLY the part
    numbers and replacement parts explicitly stated in the document text, tables, or diagrams.
 
-2. From the document, identify:
-   - The affected part number(s).
+   MULTI-PAGE RULE: This document may span multiple pages. A cover page, a table of affected
+   parts, and a signature/footer page are common. Read and consider ALL pages before extracting
+   part numbers — do not assume all relevant information is on page one.
+
+2. From the document, identify ALL distinct affected part numbers. For each, identify:
    - The nature of the change (EOL, replacement, spec change, packaging change, etc.).
    - The recommended replacement part number(s) if provided.
    - The timeline/effective date.
@@ -107,14 +110,23 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    - PR link.
 
 7. Do not ask for user confirmation at any step. Act autonomously and completely.
+   Process every part number found — even if the document has multiple — independently
+   through the full pipeline (inventory lookup → PR or skip → ECO or skip).
+
    Report your actions and findings at the very end as ONLY a valid JSON object
    matching exactly this schema, with no markdown fences and no surrounding prose:
    {
-       "extracted_part_number": "...",
-       "replacement_found": true/false,
-       "pr_url": "..." or null,
-       "eco_url": "..." or null
+       "parts": [
+           {
+               "part_number": "...",
+               "replacement_found": true/false,
+               "pr_url": "..." or null,
+               "eco_url": "..." or null,
+               "status": "COMPLETED" or "NO_INVENTORY_MATCH"
+           }
+       ]
    }
+   If only one part number is found, this is still a one-element list — do not flatten it.
 """
 
 # Plain model name — ADK resolves this natively through Vertex AI because
@@ -187,8 +199,7 @@ def verify_oidc_token(authorization_header: str) -> None:
 # ---------------------------------------------------------------------------
 def save_agent_run(
     gcs_uri: str, target_repo: str, response: str, status: str,
-    extracted_part_number: str = None, replacement_found: bool = None,
-    pr_url: str = None, eco_url: str = None
+    extracted_parts: list = None,
 ) -> None:
     get_db().collection(AGENT_RUNS_COLLECTION).add(
         {
@@ -196,10 +207,7 @@ def save_agent_run(
             "target_repo": target_repo,
             "response": response,
             "status": status,
-            "extracted_part_number": extracted_part_number,
-            "replacement_found": replacement_found,
-            "pr_url": pr_url,
-            "eco_url": eco_url,
+            "extracted_parts": extracted_parts or [],
             "timestamp": firestore.SERVER_TIMESTAMP,
         }
     )
@@ -269,10 +277,7 @@ async def receive_event(request: Request):
 
     session_id = f"pcn-{object_name}-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
-    extracted_part_number = None
-    replacement_found = None
-    pr_url = None
-    eco_url = None
+    extracted_parts = []
 
     try:
         from google.genai import types as genai_types
@@ -320,15 +325,35 @@ async def receive_event(request: Request):
 
                 try:
                     data = json.loads(json_str.strip())
-                    extracted_part_number = data.get("extracted_part_number")
-                    replacement_found = data.get("replacement_found")
-                    pr_url = data.get("pr_url")
-                    eco_url = data.get("eco_url")
-                    # If the agent correctly found no inventory match, use distinct status
-                    if replacement_found is False:
-                        status = "NO_INVENTORY_MATCH"
-                    else:
+                    parts_list = data.get("parts", [])
+                    if not isinstance(parts_list, list):
+                        raise ValueError("'parts' field is not a list")
+
+                    # Normalise each part entry and derive top-level status
+                    has_completed = False
+                    has_no_match = False
+                    for entry in parts_list:
+                        part_status = entry.get("status")
+                        if part_status is None:
+                            # Derive from replacement_found if agent omitted status
+                            part_status = "COMPLETED" if entry.get("replacement_found") else "NO_INVENTORY_MATCH"
+                            entry["status"] = part_status
+                        if part_status == "COMPLETED":
+                            has_completed = True
+                        else:
+                            has_no_match = True
+
+                    extracted_parts = parts_list
+
+                    # Top-level status: COMPLETED if any part succeeded, else NO_INVENTORY_MATCH
+                    if has_completed:
                         status = "COMPLETED"
+                    elif has_no_match:
+                        status = "NO_INVENTORY_MATCH"
+
+                    logger.info("Parsed %d part(s) from agent response: %s", len(extracted_parts),
+                                [(p.get("part_number"), p.get("status")) for p in extracted_parts])
+
                 except Exception as exc:
                     logger.warning("Failed to parse structured JSON from agent response: %s", exc)
                     status = "COMPLETED_UNSTRUCTURED"
@@ -353,8 +378,7 @@ async def receive_event(request: Request):
         status = "ERROR"
 
     # 6. Persist result to Firestore
-    save_agent_run(gcs_uri, GITHUB_TARGET_REPO, final_response, status,
-                   extracted_part_number, replacement_found, pr_url, eco_url)
+    save_agent_run(gcs_uri, GITHUB_TARGET_REPO, final_response, status, extracted_parts)
 
     return {
         "status": "ok",
