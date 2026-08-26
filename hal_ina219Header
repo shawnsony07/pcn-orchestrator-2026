@@ -1,0 +1,15 @@
+#ifndef HAL_INA219_H
+#define HAL_INA219_H
+
+/* INA226 Target Register Definitions for replacing INA219 */
+
+// INA219_REG_CALIBRATION (0x05) -> Recalculate per INA226 datasheet §8.6
+#define INA219_REG_CALIBRATION       0x05
+
+// INA219_CONFIG_BADCRES_12BIT has been removed (INA226 uses 16-bit fixed resolution)
+
+// Added for INA226 support
+#define INA226_REG_MASK_ENABLE       0x06
+#define INA226_REG_ALERT_LIMIT       0x07
+
+#endif // HAL_INA219_H
