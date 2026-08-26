@@ -3,16 +3,15 @@
 
 /**
  * @file hal_stm32f103c8t6.h
- * @brief Hardware Abstraction Layer for STM32F103C8T6 (Updated to STM32F103CBT6)
- * 
- * Note: STM32F103C8T6 is discontinued (EOL). This HAL configuration has been updated
- * to target the recommended replacement, STM32F103CBT6, which is pin-for-pin compatible
- * and features 2x the flash capacity (128 KB instead of 64 KB).
+ * @brief HAL Configuration for STM32F103C8T6 (Migrated to STM32F103CBT6)
+ *
+ * Notice: STM32F103C8T6 has been discontinued (EOL).
+ * Recommended pin-for-pin replacement is STM32F103CBT6 (2x flash capacity).
  */
 
-#define MCU_PART_NUMBER       "STM32F103CBT6"
-#define MCU_FLASH_SIZE_KB     128
-#define MCU_SRAM_SIZE_KB      20
-#define MCU_PIN_COUNT         48
+#warning "STM32F103C8T6 is EOL. Migrating to pin-compatible replacement STM32F103CBT6."
+
+#define STM32F103_FLASH_SIZE_KB 128
+#define STM32F103_PART_NUMBER "STM32F103CBT6"
 
 #endif // HAL_STM32F103C8T6_H
