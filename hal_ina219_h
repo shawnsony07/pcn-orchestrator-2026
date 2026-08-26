@@ -1,19 +1,44 @@
 #ifndef HAL_INA219_H
 #define HAL_INA219_H
 
-/* Target: INA226AIDR (Drop-in Replacement for INA219AIDR) */
+#include <stdint.h>
 
-#define INA219_REG_CONFIG         0x00
-#define INA219_REG_SHUNTVOLTAGE   0x01
-#define INA219_REG_BUSVOLTAGE     0x02
-#define INA219_REG_POWER          0x03
-#define INA219_REG_CURRENT        0x04
-#define INA219_REG_CALIBRATION    0x05 /* Recalculated per INA226 datasheet Section 8.6 */
+/**
+ * @brief INA226 Hardware Abstraction Layer (Updated from INA219)
+ * 
+ * This driver has been updated from INA219 to target the INA226AIDR 
+ * pin-compatible replacement per TI-PCN-2026-0482.
+ */
 
-/* INA226 Registers */
-#define INA226_REG_MASK_ENABLE    0x06
-#define INA226_REG_ALERT_LIMIT    0x07
+/* I2C Address of INA226 (Default) */
+#define INA219_I2C_ADDRESS               0x40
 
-/* Note: INA219_CONFIG_BADCRES_12BIT is removed as INA226 uses 16-bit fixed resolution */
+/* INA226 Register Map (Updated from INA219) */
+#define INA219_REG_CONFIG                0x00
+#define INA219_REG_SHUNTVOLTAGE          0x01
+#define INA219_REG_BUSVOLTAGE            0x02
+#define INA219_REG_POWER                 0x03
+#define INA219_REG_CURRENT               0x04
+#define INA219_REG_CALIBRATION           0x05  /* Recalculate per INA226 datasheet §8.6 */
+
+/* INA226 Specific Registers (New additions) */
+#define INA226_REG_MASK_ENABLE           0x06
+#define INA226_REG_ALERT_LIMIT           0x07
+
+/* Configuration register bitfields */
+/* Note: INA219_CONFIG_BADCRES_12BIT removed as INA226 uses 16-bit fixed resolution */
+#define INA226_CONFIG_RESET              0x8000
+#define INA226_CONFIG_AVG_MASK           0x0E00
+#define INA226_CONFIG_VBUS_CT_MASK       0x01C0
+#define INA226_CONFIG_VSH_CT_MASK        0x0038
+#define INA226_CONFIG_MODE_MASK          0x0007
+
+/* Function Prototypes */
+int8_t hal_ina219_init(void);
+int16_t hal_ina219_get_shunt_voltage(void);
+int16_t hal_ina219_get_bus_voltage(void);
+int16_t hal_ina219_get_current(void);
+int16_t hal_ina219_get_power(void);
+int8_t hal_ina219_configure_alerts(uint16_t mask, uint16_t limit);
 
 #endif /* HAL_INA219_H */
