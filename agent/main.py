@@ -49,6 +49,13 @@ MAX_PDF_BYTES = 5 * 1024 * 1024  # 5 MB cost guard
 # ---------------------------------------------------------------------------
 # Vertex AI init (once at module load)
 # ---------------------------------------------------------------------------
+# ADK 2.0 defaults to the public Gemini API (needs an API key).
+# Setting this env var before any ADK/genai import forces it to use Vertex AI
+# (authenticated via ADC / the attached service account on Cloud Run).
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "1")
+os.environ.setdefault("GOOGLE_CLOUD_PROJECT", GCP_PROJECT_ID)
+os.environ.setdefault("GOOGLE_CLOUD_LOCATION", GCP_REGION)
+
 vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
 
 # ---------------------------------------------------------------------------
@@ -87,9 +94,11 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    Report your actions and findings at the end.
 """
 
+# Use the 'vertexai/' prefix so ADK unambiguously routes through Vertex AI,
+# even if GOOGLE_GENAI_USE_VERTEXAI is somehow not picked up.
 agent = Agent(
     name="pcn_triage_agent",
-    model="gemini-3.5-flash",
+    model="vertexai/gemini-2.0-flash",
     instruction=TRIAGE_INSTRUCTION,
     tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
 )
