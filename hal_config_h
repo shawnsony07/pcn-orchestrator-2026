@@ -2,12 +2,14 @@
 #define HAL_CONFIG_H
 
 /*
- * Hardware Abstraction Layer Configuration
- * Generated automatically due to EOL of STM32F103C8T6
- * Replacement: STM32F103CBT6 (pin-for-pin compatible, 2x flash capacity)
+ * HAL Configuration File
+ * Automatically updated via PCN processing pipeline.
+ *
+ * Affected Part: STM32F103C8T6
+ * Replacement Part: STM32F103CBT6 (pin-for-pin compatible, 2x flash capacity)
+ * PCN Reference: TI-PCN-2026-0731
  */
 
-#define MCU_STM32F103CBT6
-#define MCU_FLASH_SIZE_KB 128
+#define MCU_PART_NUMBER "STM32F103CBT6"
 
 #endif // HAL_CONFIG_H
