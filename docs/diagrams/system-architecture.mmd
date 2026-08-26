@@ -1,0 +1,29 @@
+C4Container
+    title PCN Triage Orchestrator - System Architecture
+
+    Person(gmail_api, "Gmail API Push", "pushes new email notifications")
+
+    System_Boundary(pcn_system, "PCN Triage Orchestrator") {
+        Container(pubsub, "Pub/Sub", "Message Broker", "Receives pushes from Gmail API")
+        Container(ingestor, "pcn-ingestor", "Cloud Run", "Fetches email, extracts PDF, uploads to GCS")
+        Container(gcs_raw, "pcn-raw-documents", "Google Cloud Storage", "Stores incoming PCN PDFs")
+        Container(eventarc, "Eventarc", "Event Router", "Triggers agent on new file upload")
+        Container(agent, "pcn-agent", "Cloud Run", "Runs Multi-Agent Triage Pipeline")
+        ContainerDb(firestore, "Firestore", "NoSQL Database", "State persistence and Inventory lookup")
+        Container(gcs_eco, "eco-outputs", "Google Cloud Storage", "Stores generated ECO PDFs")
+    }
+
+    System_Ext(vertex, "Vertex AI", "Gemini 3.5 Flash LLM")
+    System_Ext(github, "GitHub", "Target repository for Pull Requests")
+
+    Rel(gmail_api, pubsub, "Sends push notification", "HTTPS")
+    Rel(pubsub, ingestor, "Invokes endpoint", "OIDC Push")
+    Rel(ingestor, gcs_raw, "Uploads raw PDF")
+    Rel(ingestor, firestore, "Maintains Gmail sync state")
+    Rel(gcs_raw, eventarc, "Triggers on finalize")
+    Rel(eventarc, agent, "Invokes endpoint", "CloudEvent")
+    
+    Rel(agent, vertex, "Extracts part numbers")
+    Rel(agent, firestore, "Queries inventory & logs run state")
+    Rel(agent, github, "Creates PR")
+    Rel(agent, gcs_eco, "Uploads ECO PDF")

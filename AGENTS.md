@@ -103,6 +103,9 @@ Implements a FastAPI server receiving Pub/Sub push messages (not raw email — G
    - Call `users.history.list(userId="me", startHistoryId=<last known id>)` to find new
      messages added to `INBOX` since then.
    - For each new message: call `users.messages.get(userId="me", id=<msg id>)` to retrieve it.
+   - Extract the `From` header and verify it against `ALLOWED_SENDERS` (env var, comma-separated).
+     If not in the allowlist, log a rejection message and skip processing without advancing history
+     in a way that causes infinite loops.
    - Update the stored `last_history_id` in Firestore after successful processing.
 5. **Extract PDF attachment:** walk the message payload parts for `mimeType ==
    "application/pdf"`, fetch via `users.messages.attachments.get`, decode from base64url.
@@ -138,34 +141,67 @@ Three tool functions:
 
 ---
 
-## 5. `agent/main.py` — Eventarc Handler + ADK Agent
+## 5. `agent/main.py` — Eventarc Handler + Multi-Agent Orchestration
+
+The pipeline is split into three sequential agents for robustness. State is passed between them by parsing the structured JSON output of one stage and feeding it into the `new_message` of the next stage via independent `Runner` invocations. This allows independent retries if a stage fails.
 
 1. **Agent Initialization:**
    ```python
-   agent = Agent(
-       name="pcn_triage_agent",
+   # Stage 1
+   triage_agent = Agent(
+       name="triage_agent",
        model="gemini-3.5-flash",
-       instruction="<strict autonomous triage instructions, no user intervention>",
-       tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
+       instruction="Read the multi-page PDF natively attached and extract all distinct affected part numbers. Output `{\"parts\": [\"<part1>\", ...]}`.",
+   )
+   
+   # Stage 2
+   resolution_agent = Agent(
+       name="resolution_agent",
+       model="gemini-3.5-flash",
+       instruction="For each part number, query the inventory. Output `{\"parts\": [{\"part_number\": ..., \"found\": bool, ...}]}`. If found: false, do not invent replacements.",
+       tools=[query_firestore_inventory],
+   )
+   
+   # Stage 3
+   action_agent = Agent(
+       name="action_agent",
+       model="gemini-3.5-flash",
+       instruction="For parts with found: true, generate PR and ECO. Output `{\"parts\": [{\"part_number\": ..., \"replacement_found\": bool, \"pr_url\": ..., \"eco_url\": ..., \"status\": \"COMPLETED\"|\"NO_INVENTORY_MATCH\"}]}`.",
+       tools=[github_create_pr, generate_eco_pdf],
    )
    ```
-   Initialize the Vertex AI client with `project=GCP_PROJECT_ID`, `location=GCP_REGION`
-   (both from env vars — see Section 7). Do not hardcode the project or region.
 
 2. **Endpoint:** `POST /`, receives Eventarc CloudEvent. Read `ce-subject` header to get the
    GCS object name. Also verify the Eventarc-issued OIDC token the same way as described in
-   Section 3 step 2 — same mechanism, this service is equally locked down.
+   Section 3 step 2.
 
-3. **Cost Guard:** before invoking the agent, check the uploaded PDF's size via the GCS SDK.
+3. **Cost Guard:** before invoking the pipeline, check the uploaded PDF's size via the GCS SDK.
    If it exceeds 5MB, log a `"Payload Too Large"` entry to Firestore collection `agent_runs`
    with `status: "REJECTED_SIZE"` and return `200 OK` without invoking the LLM.
 
-4. **Execution:** construct `gs://pcn-raw-documents/<object_name>`, prompt the agent to
-   triage against target repo `GITHUB_TARGET_REPO` (env var).
+4. **Execution & Retries:** construct `gs://pcn-raw-documents/<object_name>`. Execute each agent in sequence.
+   - Use a helper `run_stage_with_retry` that initiates a `Runner` per agent, parses its output defensively, and retries the stage (not the whole pipeline) on failure.
+   - Stage 1 receives the multimodal PDF URI and outputs a list of parts.
+   - Stage 2 receives Stage 1's JSON and resolves inventory.
+   - Stage 3 receives Stage 2's JSON and performs external actions.
 
-5. **State Persistence:** write to Firestore collection `agent_runs`:
+5. **State Persistence:** write to Firestore collection `agent_runs` after Stage 3:
    ```json
-   { "gcs_uri": "str", "target_repo": "str", "response": "str", "status": "str", "timestamp": "<server timestamp>" }
+   {
+       "gcs_uri": "str", 
+       "target_repo": "str", 
+       "extracted_parts": [
+           {
+               "part_number": "str",
+               "found": "bool",
+               "replacement_found": "bool",
+               "pr_url": "str|null",
+               "eco_url": "str|null",
+               "status": "COMPLETED|NO_INVENTORY_MATCH"
+           }
+       ], 
+       "timestamp": "<server timestamp>"
+   }
    ```
 
 6. Return `200 OK` with a JSON summary.
@@ -200,6 +236,7 @@ GMAIL_CLIENT_ID
 GMAIL_CLIENT_SECRET
 GMAIL_REFRESH_TOKEN
 GMAIL_WATCHED_ADDRESS
+ALLOWED_SENDERS
 GMAIL_PUBSUB_TOPIC
 GCS_RAW_DOCUMENTS_BUCKET
 GCS_ECO_OUTPUTS_BUCKET
@@ -234,20 +271,6 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 dependencies for both `ingestor/` and `agent/`, run `flake8` on both, and run a basic import
 smoke test (`python -c "import main"` in each directory) as a build validation step. No
 deployment step in CI — deployment stays manual via `gcloud run deploy` for this hackathon.
-
----
-
-## 10. README.md (Required Hackathon Deliverable)
-
-Must include, as explicit step-by-step instructions:
-1. Prerequisites (gcloud CLI, Python 3.11+, a GCP project with the infra from Section 0).
-2. Local `.env` setup — list the variable names from Section 7, explain each briefly.
-3. Local run instructions (`uvicorn main:app --reload` per service, plus the ADC impersonation
-   login command from Section 0).
-4. GCP deployment commands (`gcloud run deploy` for both services, matching Section 8's
-   Dockerfiles).
-5. A short note that Gmail watch expires weekly and must be renewed (Section 6), until the
-   Cloud Scheduler job is in place.
 
 ---
 

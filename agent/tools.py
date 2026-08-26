@@ -55,16 +55,10 @@ def _get_gcs() -> storage.Client:
 # ---------------------------------------------------------------------------
 def query_firestore_inventory(part_number: str) -> dict:
     """
-    Query the Firestore 'inventory' collection for the given part number.
-
-    Args:
-        part_number: The exact part number string to look up (e.g. "INA226").
-
-    Returns:
-        A dict with keys: part_number, replacement_part_numbers, status,
-        datasheet_uri.  If not found, returns {"found": False, "part_number": <...>}.
+    Queries Firestore for the given part number and returns inventory status,
+    replacement parts, datasheet URIs, etc.
     """
-    logger.info("Querying inventory for part_number=%s", part_number)
+    logger.info("[RESOLUTION] query_firestore_inventory called for part: %s", part_number)
     db = _get_db()
     doc_ref = db.collection("inventory").document(part_number)
     doc = doc_ref.get()

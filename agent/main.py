@@ -11,8 +11,11 @@ Auth model:
   - Vertex AI / ADK: ADC, project+region from env vars.
 """
 
+import asyncio
+import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import vertexai
@@ -22,6 +25,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.auth.transport import requests as google_requests
 from google.cloud import firestore, storage
+from google.genai import types as genai_types
 from google.oauth2 import id_token
 
 from tools import generate_eco_pdf, github_create_pr, query_firestore_inventory
@@ -61,8 +65,9 @@ vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
 # ---------------------------------------------------------------------------
 # ADK Agent definition
 # ---------------------------------------------------------------------------
-TRIAGE_INSTRUCTION = """
-You are an autonomous PCN (Product Change Notification) triage agent. Your job is to:
+STAGE1_INSTRUCTION = """
+[TRIAGE]
+You are the Triage Agent in an autonomous PCN pipeline. Your ONLY job is to extract part numbers.
 
 1. Read the attached PCN PDF document natively. Do not guess or hallucinate part numbers — use ONLY the part
    numbers and replacement parts explicitly stated in the document text, tables, or diagrams.
@@ -71,77 +76,81 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    parts, and a signature/footer page are common. Read and consider ALL pages before extracting
    part numbers — do not assume all relevant information is on page one.
 
-2. From the document, identify ALL distinct affected part numbers. For each, identify:
-   - The nature of the change (EOL, replacement, spec change, packaging change, etc.).
-   - The recommended replacement part number(s) if provided.
-   - The timeline/effective date.
+2. From the document, identify ALL distinct affected part numbers.
 
-3. For each affected part number found in the document, call query_firestore_inventory
-   to check if it exists in the internal inventory and retrieve any known replacement
-   mappings.
-
-   CRITICAL INVENTORY RULE: If query_firestore_inventory returns {"found": false} for a
-   part number, you MUST NOT invent, guess, or suggest a replacement part under any
-   circumstances. Do not call github_create_pr or generate_eco_pdf for that part.
-   Report it as unresolved in your structured output with replacement_found: false and
-   no pr_url or eco_url for that part. Fabricating a replacement when the inventory
-   does not confirm one is a critical failure.
-
-4. For parts where query_firestore_inventory returns {"found": true}, determine which
-   HAL (Hardware Abstraction Layer) header files in the target repository need updating
-   to reference the replacement part. Generate the minimal, correct HAL changes.
-
-5. For each part where inventory was found, call github_create_pr with:
-   - repo_url: the target GitHub repository URL provided in your prompt.
-   - part_number: the primary affected part number you identified.
-   - gcs_object_name: the GCS object name provided in your prompt.
-   - hal_modifications: a dict mapping file paths to their new content.
-     IMPORTANT: use the exact filename from the PCN document (e.g. "hal_ina219.h"),
-     NOT an invented subdirectory path (e.g. NOT "hal/hal_ina219.h"). The tool will
-     place the file correctly in the repository.
-
-6. For each part where inventory was found and a PR was created, call generate_eco_pdf
-   with a comprehensive ECO report string that includes:
-   - Part number affected.
-   - PCN summary.
-   - Inventory status.
-   - Replacement recommendation.
-   - HAL files changed.
-   - PR link.
-
-7. Do not ask for user confirmation at any step. Act autonomously and completely.
-   Process every part number found — even if the document has multiple — independently
-   through the full pipeline (inventory lookup → PR or skip → ECO or skip).
-
-   Report your actions and findings at the very end as ONLY a valid JSON object
-   matching exactly this schema, with no markdown fences and no surrounding prose:
-   {
-       "parts": [
-           {
-               "part_number": "...",
-               "replacement_found": true/false,
-               "pr_url": "..." or null,
-               "eco_url": "..." or null,
-               "status": "COMPLETED" or "NO_INVENTORY_MATCH"
-           }
-       ]
-   }
-   If only one part number is found, this is still a one-element list — do not flatten it.
+Report your actions and findings at the very end as ONLY a valid JSON object matching exactly this schema:
+{"parts": ["<part_number_1>", "<part_number_2>", ...]}
+If no part numbers can be identified, output {"parts": []}. Do not guess or force an output.
 """
 
-# Plain model name — ADK resolves this natively through Vertex AI because
-# vertexai.init() has already been called above. The "vertexai/" prefix
-# incorrectly triggers litellm routing (not installed).
-agent = Agent(
-    name="pcn_triage_agent",
+STAGE2_INSTRUCTION = """
+[RESOLUTION]
+You are the Resolution Agent in an autonomous PCN pipeline. 
+The user will provide the part numbers extracted by the Triage Agent.
+
+For each part number listed in the triage output, call query_firestore_inventory to check if it 
+exists in the internal inventory and retrieve any known replacement mappings.
+
+CRITICAL INVENTORY RULE: If query_firestore_inventory returns {"found": false} for a part number, 
+you MUST NOT invent, guess, or suggest a replacement part under any circumstances.
+
+Output a structured JSON array, one entry per part, with no markdown fences and no surrounding prose:
+{"parts": [
+  {"part_number": "...", "found": true/false, "replacement_part_numbers": [...], "datasheet_uri": "...", "status": "..."}
+]}
+"""
+
+STAGE3_INSTRUCTION = """
+[ACTION]
+You are the Action Agent in an autonomous PCN pipeline.
+The user will provide the inventory status for the parts from the Resolution Agent.
+
+For each part where "found" is true:
+1. Determine which HAL (Hardware Abstraction Layer) header files in the target repository need updating
+   to reference the replacement part. Generate the minimal, correct HAL changes.
+2. Call github_create_pr to open a PR for that part.
+3. Call generate_eco_pdf to generate the ECO report for that part.
+
+For parts where "found" is false, take no action. Do not call github_create_pr or generate_eco_pdf.
+
+Report your actions and findings at the very end as ONLY a valid JSON object
+matching exactly this schema, with no markdown fences and no surrounding prose:
+{
+    "parts": [
+        {
+            "part_number": "...",
+            "replacement_found": true/false,
+            "pr_url": "..." or null,
+            "eco_url": "..." or null,
+            "status": "COMPLETED" or "NO_INVENTORY_MATCH"
+        }
+    ]
+}
+"""
+
+triage_agent = Agent(
+    name="triage_agent",
     model="gemini-3.5-flash",
-    instruction=TRIAGE_INSTRUCTION,
-    tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
+    instruction=STAGE1_INSTRUCTION,
+    tools=[],
 )
 
-# ADK runner with in-memory session service (stateless per invocation)
+resolution_agent = Agent(
+    name="resolution_agent",
+    model="gemini-3.5-flash",
+    instruction=STAGE2_INSTRUCTION,
+    tools=[query_firestore_inventory],
+)
+
+action_agent = Agent(
+    name="action_agent",
+    model="gemini-3.5-flash",
+    instruction=STAGE3_INSTRUCTION,
+    tools=[github_create_pr, generate_eco_pdf],
+)
+
+# Shared session service
 session_service = InMemorySessionService()
-runner = Runner(agent=agent, app_name="pcn_triage", session_service=session_service)
 
 # ---------------------------------------------------------------------------
 # Shared GCP clients
@@ -149,13 +158,11 @@ runner = Runner(agent=agent, app_name="pcn_triage", session_service=session_serv
 _db: firestore.Client = None
 _gcs: storage.Client = None
 
-
 def get_db() -> firestore.Client:
     global _db
     if _db is None:
         _db = firestore.Client()
     return _db
-
 
 def get_gcs() -> storage.Client:
     global _gcs
@@ -163,12 +170,10 @@ def get_gcs() -> storage.Client:
         _gcs = storage.Client()
     return _gcs
 
-
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 app = FastAPI(title="pcn-agent")
-
 
 # ---------------------------------------------------------------------------
 # OIDC token verification helper
@@ -193,7 +198,6 @@ def verify_oidc_token(authorization_header: str) -> None:
         logger.warning("OIDC token verification failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid OIDC token") from exc
 
-
 # ---------------------------------------------------------------------------
 # Firestore helper — persist agent run
 # ---------------------------------------------------------------------------
@@ -212,6 +216,41 @@ def save_agent_run(
         }
     )
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+async def run_stage_with_retry(runner: Runner, session_id: str, new_message: genai_types.Content, stage_name: str) -> str:
+    """Executes a runner with up to 3 retries on failure."""
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            final_response = ""
+            async for event in runner.run_async(
+                user_id="system",
+                session_id=session_id,
+                new_message=new_message,
+            ):
+                if hasattr(event, "content") and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            final_response += part.text
+            return final_response
+        except Exception as exc:
+            if attempt == max_attempts - 1:
+                logger.error("%s run failed: %s", stage_name, exc)
+                raise
+            delay = 2 ** attempt
+            logger.warning("Transient error in %s on attempt %d, retrying in %ds: %s", stage_name, attempt + 1, delay, exc)
+            await asyncio.sleep(delay)
+
+def extract_json_from_response(response: str) -> dict:
+    """Parses JSON defensively, stripping markdown fences if present."""
+    json_str = response
+    match = re.search(r'```(?:json)?(.*?)```', response, re.DOTALL)
+    if match:
+        json_str = match.group(1)
+    return json.loads(json_str.strip())
+
 
 # ---------------------------------------------------------------------------
 # Endpoint
@@ -220,22 +259,14 @@ def save_agent_run(
 async def receive_event(request: Request):
     """
     Receives a GCS finalize CloudEvent from Eventarc.
-
-    Expected headers:
-      - Authorization: Bearer <oidc-token>
-      - ce-subject: objects/<object-name>   (set by Eventarc for GCS events)
-
-    Always returns 200 OK (Eventarc retries on non-2xx).
     """
     # 1. OIDC verification
     auth_header = request.headers.get("Authorization", "")
     verify_oidc_token(auth_header)
 
     # 2. Extract GCS object name from the ce-subject header
-    # Eventarc sets ce-subject to e.g. "objects/<name>" or "objects/<name>?generation=..."
     ce_subject = request.headers.get("ce-subject", "")
     if not ce_subject:
-        # Also check the CloudEvent JSON body as fallback
         try:
             body = await request.json()
             ce_subject = body.get("subject", "")
@@ -266,116 +297,96 @@ async def receive_event(request: Request):
         save_agent_run(gcs_uri, GITHUB_TARGET_REPO, "Payload Too Large", "REJECTED_SIZE")
         return {"status": "ok", "detail": "rejected: payload too large"}
 
-    # 4. Run the ADK agent
-    prompt = (
-        f"A new PCN document has been uploaded to {gcs_uri}.\n"
-        f"GCS Object Name: {object_name}\n"
-        f"Target repository for HAL updates: {GITHUB_TARGET_REPO}\n\n"
-        "Triage this PCN autonomously: identify affected parts, check inventory, "
-        "open a GitHub PR with necessary HAL changes, and generate the ECO PDF report."
-    )
-
+    # 4. Run the ADK agents manually
     session_id = f"pcn-{object_name}-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
-
     extracted_parts = []
+    final_response = ""
+    status = "COMPLETED"
 
     try:
-        from google.genai import types as genai_types
-        user_message = genai_types.Content(
-            role="user",
-            parts=[
-                genai_types.Part.from_uri(file_uri=gcs_uri, mime_type="application/pdf"),
-                genai_types.Part.from_text(text=prompt)
-            ],
-        )
-
-        # InMemorySessionService.create_session is a coroutine — must be awaited.
-        # Creating it first is required before runner.run_async() looks it up.
         await session_service.create_session(
             app_name="pcn_triage",
             user_id="system",
             session_id=session_id,
         )
 
-        import asyncio
-        import json
-        import re
+        # Stage 1: Triage
+        triage_runner = Runner(agent=triage_agent, app_name="pcn_triage", session_service=session_service)
+        triage_prompt = (
+            f"A new PCN document has been uploaded to {gcs_uri}.\n"
+            f"GCS Object Name: {object_name}\n\n"
+            "Triage this PCN autonomously: identify all affected parts from the attached PDF."
+        )
+        triage_message = genai_types.Content(
+            role="user",
+            parts=[
+                genai_types.Part.from_uri(file_uri=gcs_uri, mime_type="application/pdf"),
+                genai_types.Part.from_text(text=triage_prompt)
+            ],
+        )
+        triage_response = await run_stage_with_retry(triage_runner, session_id, triage_message, "Stage 1 (Triage)")
+        triage_data = extract_json_from_response(triage_response)
+        logger.info("Stage 1 completed. Parsed data: %s", json.dumps(triage_data))
 
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                final_response = ""
-                async for event in runner.run_async(
-                    user_id="system",
-                    session_id=session_id,
-                    new_message=user_message,
-                ):
-                    if hasattr(event, "content") and event.content:
-                        for part in event.content.parts:
-                            if hasattr(part, "text") and part.text:
-                                final_response += part.text
-                status = "COMPLETED"
-                logger.info("Agent run completed for %s", gcs_uri)
+        # Stage 2: Resolution
+        resolution_runner = Runner(agent=resolution_agent, app_name="pcn_triage", session_service=session_service)
+        resolution_prompt = (
+            f"The Triage Agent extracted the following part numbers:\n"
+            f"{json.dumps(triage_data)}\n\n"
+            "Call query_firestore_inventory for each part to check if it exists in the internal inventory."
+        )
+        resolution_message = genai_types.Content(
+            role="user",
+            parts=[genai_types.Part.from_text(text=resolution_prompt)]
+        )
+        resolution_response = await run_stage_with_retry(resolution_runner, session_id, resolution_message, "Stage 2 (Resolution)")
+        resolution_data = extract_json_from_response(resolution_response)
+        logger.info("Stage 2 completed. Parsed data: %s", json.dumps(resolution_data))
 
-                # 5. Parse JSON response defensively
-                json_str = final_response
-                match = re.search(r'```(?:json)?(.*?)```', final_response, re.DOTALL)
-                if match:
-                    json_str = match.group(1)
+        # Stage 3: Action
+        action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_service=session_service)
+        action_prompt = (
+            f"Target repository for HAL updates: {GITHUB_TARGET_REPO}\n"
+            f"The Resolution Agent provided this inventory status for the parts:\n"
+            f"{json.dumps(resolution_data)}\n\n"
+            "Take the appropriate actions (generate PRs and ECOs) for each part where found is true."
+        )
+        action_message = genai_types.Content(
+            role="user",
+            parts=[genai_types.Part.from_text(text=action_prompt)]
+        )
+        final_response = await run_stage_with_retry(action_runner, session_id, action_message, "Stage 3 (Action)")
+        final_data = extract_json_from_response(final_response)
+        logger.info("Stage 3 completed. Parsed data: %s", json.dumps(final_data))
 
-                try:
-                    data = json.loads(json_str.strip())
-                    parts_list = data.get("parts", [])
-                    if not isinstance(parts_list, list):
-                        raise ValueError("'parts' field is not a list")
+        # Final Parsing and Normalization
+        parts_list = final_data.get("parts", [])
+        if not isinstance(parts_list, list):
+            raise ValueError("'parts' field is not a list")
 
-                    # Normalise each part entry and derive top-level status
-                    has_completed = False
-                    has_no_match = False
-                    for entry in parts_list:
-                        part_status = entry.get("status")
-                        if part_status is None:
-                            # Derive from replacement_found if agent omitted status
-                            part_status = "COMPLETED" if entry.get("replacement_found") else "NO_INVENTORY_MATCH"
-                            entry["status"] = part_status
-                        if part_status == "COMPLETED":
-                            has_completed = True
-                        else:
-                            has_no_match = True
+        has_completed = False
+        has_no_match = False
+        for entry in parts_list:
+            part_status = entry.get("status")
+            if part_status is None:
+                part_status = "COMPLETED" if entry.get("replacement_found") else "NO_INVENTORY_MATCH"
+                entry["status"] = part_status
+            if part_status == "COMPLETED":
+                has_completed = True
+            else:
+                has_no_match = True
 
-                    extracted_parts = parts_list
-
-                    # Top-level status: COMPLETED if any part succeeded, else NO_INVENTORY_MATCH
-                    if has_completed:
-                        status = "COMPLETED"
-                    elif has_no_match:
-                        status = "NO_INVENTORY_MATCH"
-
-                    logger.info("Parsed %d part(s) from agent response: %s", len(extracted_parts),
-                                [(p.get("part_number"), p.get("status")) for p in extracted_parts])
-
-                except Exception as exc:
-                    logger.warning("Failed to parse structured JSON from agent response: %s", exc)
-                    status = "COMPLETED_UNSTRUCTURED"
-
-                break
-            except Exception as exc:
-                if attempt == max_attempts - 1:
-                    logger.error("Agent run failed for %s: %s", gcs_uri, exc)
-                    final_response = f"Agent run failed: {exc}"
-                    status = "ERROR"
-                else:
-                    delay = 2 ** attempt
-                    logger.warning(
-                        "Transient error on attempt %d for %s, retrying in %ds: %s",
-                        attempt + 1, gcs_uri, delay, exc
-                    )
-                    await asyncio.sleep(delay)
+        extracted_parts = parts_list
+        if has_completed:
+            status = "COMPLETED"
+        elif has_no_match:
+            status = "NO_INVENTORY_MATCH"
 
     except Exception as exc:
-        logger.error("Failed to start agent run for %s: %s", gcs_uri, exc)
-        final_response = f"Failed to start agent: {exc}"
+        logger.error("Agent run failed for %s: %s", gcs_uri, exc)
         status = "ERROR"
+        if not final_response:
+            final_response = f"Failed during agent run: {exc}"
 
     # 6. Persist result to Firestore
     save_agent_run(gcs_uri, GITHUB_TARGET_REPO, final_response, status, extracted_parts)
