@@ -29,18 +29,6 @@ logger = logging.getLogger(__name__)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GCS_ECO_OUTPUTS_BUCKET = os.environ.get("GCS_ECO_OUTPUTS_BUCKET", "")
 
-# ---------------------------------------------------------------------------
-# Shared GCS client
-# ---------------------------------------------------------------------------
-_gcs: storage.Client = None
-
-
-def _get_gcs() -> storage.Client:
-    global _gcs
-    if _gcs is None:
-        _gcs = storage.Client()
-    return _gcs
-
 
 # ---------------------------------------------------------------------------
 # Tool 1: Read PCN document from GCS
