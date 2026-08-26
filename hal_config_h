@@ -1,12 +1,13 @@
 #ifndef HAL_CONFIG_H
 #define HAL_CONFIG_H
 
-/* Auto-generated HAL configuration for STM32F103C8T6 replacement */
-/* Original Part: STM32F103C8T6 (64 KB Flash) */
-/* Replacement Part: STM32F103CBT6 (128 KB Flash) */
+/*
+ * Hardware Abstraction Layer Configuration
+ * Generated automatically due to EOL of STM32F103C8T6
+ * Replacement: STM32F103CBT6 (pin-for-pin compatible, 2x flash capacity)
+ */
 
-#define TARGET_MCU_STM32F103CBT6
+#define MCU_STM32F103CBT6
 #define MCU_FLASH_SIZE_KB 128
-#define PIN_COMPATIBLE_UPGRADE 1
 
 #endif // HAL_CONFIG_H
