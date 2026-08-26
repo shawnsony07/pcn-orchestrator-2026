@@ -8,6 +8,36 @@ The PCN Triage Orchestrator automates the intake and resolution of hardware Prod
 
 ---
 
+## Project Structure
+
+```text
+pcn-orchestrator-2026/
+├── agent/
+│   ├── Dockerfile
+│   ├── main.py
+│   ├── requirements.txt
+│   └── tools.py
+├── docs/
+│   └── diagrams/                 # Mermaid architecture diagrams
+├── ingestor/
+│   ├── Dockerfile
+│   ├── main.py
+│   └── requirements.txt
+├── scripts/
+│   ├── generate_test_pcn.py
+│   ├── gmail_oauth_setup.py      # one-time local OAuth authorization
+│   ├── gmail_watch_renew.py      # Cloud Run Job script for watch renewal
+│   └── seed_inventory.py
+├── test_pdfs/                    # Sample PCN PDFs for manual testing
+├── .github/workflows/
+│   └── ci-validation.yml
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+---
+
 ## Local Development Prerequisites
 
 1. **gcloud CLI** — [Install](https://cloud.google.com/sdk/docs/install), then authenticate:
