@@ -1,0 +1,10 @@
+#include "hal_ina219.h"
+
+/*
+ * HAL Driver Implementation for INA219AIDR updated to target INA226AIDR.
+ * 
+ * Note:
+ * - INA219_REG_CALIBRATION is recalculated according to INA226 datasheet §8.6.
+ * - INA219_CONFIG_BADCRES_12BIT has been removed.
+ * - Added support for INA226_REG_MASK_ENABLE (0x06) and INA226_REG_ALERT_LIMIT (0x07).
+ */
