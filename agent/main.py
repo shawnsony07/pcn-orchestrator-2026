@@ -98,7 +98,7 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
 # even if GOOGLE_GENAI_USE_VERTEXAI is somehow not picked up.
 agent = Agent(
     name="pcn_triage_agent",
-    model="vertexai/gemini-2.0-flash",
+    model="vertexai/gemini-3.5-flash",
     instruction=TRIAGE_INSTRUCTION,
     tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
 )
