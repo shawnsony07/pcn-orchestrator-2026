@@ -230,14 +230,23 @@ def github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dic
             logger.error("Failed to commit %s: %s", file_path, exc)
             return {"status": "error", "detail": str(exc)}
 
-    # Open the PR
+    # Open the PR — idempotent: return existing PR if one already exists for
+    # this branch, rather than letting a 422 trigger the agent to retry with
+    # a differently-named branch (which produces duplicate PRs).
     try:
+        existing_prs = list(repo.get_pulls(state="open", head=f"{repo.owner.login}:{branch}"))
+        if existing_prs:
+            pr = existing_prs[0]
+            logger.info("PR already exists for branch %s: %s", branch, pr.html_url)
+            return {"status": "already_exists", "pr_url": pr.html_url,
+                    "pr_number": pr.number, "branch": branch}
+
         pr = repo.create_pull(
             title=f"[PCN Triage] HAL update — {branch}",
             body=(
                 "Automated PR created by the PCN Triage Orchestrator agent.\n\n"
                 "**Modified files:**\n"
-                + "\n".join(f"- `{p}`" for p in hal_modifications)
+                + "\n".join(f"- `{p}`" for p in resolved_modifications)
             ),
             head=branch,
             base="main",
