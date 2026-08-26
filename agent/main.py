@@ -94,11 +94,12 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    Report your actions and findings at the end.
 """
 
-# Use the 'vertexai/' prefix so ADK unambiguously routes through Vertex AI,
-# even if GOOGLE_GENAI_USE_VERTEXAI is somehow not picked up.
+# Plain model name — ADK resolves this natively through Vertex AI because
+# vertexai.init() has already been called above. The "vertexai/" prefix
+# incorrectly triggers litellm routing (not installed).
 agent = Agent(
     name="pcn_triage_agent",
-    model="vertexai/gemini-3.5-flash",
+    model="gemini-3.5-flash",
     instruction=TRIAGE_INSTRUCTION,
     tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
 )
