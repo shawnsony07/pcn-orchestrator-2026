@@ -41,6 +41,14 @@ GMAIL_CLIENT_ID = os.environ["GMAIL_CLIENT_ID"]
 GMAIL_CLIENT_SECRET = os.environ["GMAIL_CLIENT_SECRET"]
 GMAIL_REFRESH_TOKEN = os.environ["GMAIL_REFRESH_TOKEN"]
 
+# Comma-separated list of authorized sender email addresses (case-insensitive).
+# Messages from any address NOT in this list are silently skipped.
+ALLOWED_SENDERS = {
+    addr.strip().lower()
+    for addr in os.environ.get("ALLOWED_SENDERS", "").split(",")
+    if addr.strip()
+}
+
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 FIRESTORE_SYNC_COLLECTION = "gmail_sync_state"
 FIRESTORE_SYNC_DOC = "state"
@@ -170,6 +178,27 @@ def get_message(gmail, message_id: str) -> dict:
     return gmail.users().messages().get(userId="me", id=message_id, format="full").execute()
 
 
+def extract_sender_email(message: dict) -> str:
+    """
+    Extract the bare email address from the message's 'From' header.
+    Handles both plain addresses ("foo@bar.com") and display-name form
+    ("Shawn Sony <foo@bar.com>").
+    Returns the lowercase email address, or empty string if not found.
+    """
+    import re
+    headers = message.get("payload", {}).get("headers", [])
+    for header in headers:
+        if header.get("name", "").lower() == "from":
+            value = header.get("value", "")
+            # Extract angle-bracket form first, fall back to bare address
+            match = re.search(r'<([^>]+)>', value)
+            if match:
+                return match.group(1).strip().lower()
+            # Plain address with no display name
+            return value.strip().lower()
+    return ""
+
+
 def extract_pdf_attachment(gmail, message: dict) -> tuple[bytes, str] | tuple[None, None]:
     """
     Walk the message parts tree looking for application/pdf.
@@ -275,6 +304,15 @@ async def receive_push(request: Request):
     for msg_id in message_ids:
         try:
             msg = get_message(gmail, msg_id)
+
+            # --- Sender allowlist check ---
+            sender = extract_sender_email(msg)
+            if ALLOWED_SENDERS and sender not in ALLOWED_SENDERS:
+                logger.warning(
+                    "Rejected message %s from unauthorized sender: %s", msg_id, sender
+                )
+                continue
+
             pdf_bytes, filename = extract_pdf_attachment(gmail, msg)
 
             if pdf_bytes is None:

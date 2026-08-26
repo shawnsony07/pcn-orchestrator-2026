@@ -47,6 +47,7 @@ Edit `.env` and fill in all values:
 | `GMAIL_CLIENT_SECRET` | OAuth 2.0 client secret |
 | `GMAIL_REFRESH_TOKEN` | Refresh token obtained by running `scripts/gmail_oauth_setup.py` |
 | `GMAIL_WATCHED_ADDRESS` | Gmail address to watch for PCN emails |
+| `ALLOWED_SENDERS` | Comma-separated list of authorized sender addresses (e.g. `shawnsony2005@gmail.com`). Emails from any other address are rejected and logged. |
 | `GMAIL_PUBSUB_TOPIC` | Full Pub/Sub topic name (`projects/<project>/topics/<topic>`) |
 | `GCS_RAW_DOCUMENTS_BUCKET` | GCS bucket name for raw PDF uploads |
 | `GCS_ECO_OUTPUTS_BUCKET` | GCS bucket name for generated ECO PDF outputs |
