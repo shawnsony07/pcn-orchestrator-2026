@@ -295,6 +295,6 @@ async def receive_push(request: Request):
     return {"status": "ok", "messages_processed": processed}
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/health")
+def health():
     return {"status": "ok"}

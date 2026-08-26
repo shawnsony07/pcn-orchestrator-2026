@@ -351,6 +351,6 @@ async def receive_event(request: Request):
     }
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/health")
+def health():
     return {"status": "ok"}
