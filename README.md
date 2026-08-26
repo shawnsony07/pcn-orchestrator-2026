@@ -290,7 +290,7 @@ By executing stages via a manual `run_stage_with_retry` wrapper, the architectur
 
 ### System Context
 
-The overall C4 architecture displays how the orchestrator connects external triggers and APIs (Gmail, GitHub, Vertex AI) to internal managed state (Firestore, Cloud Storage).
+The overall system architecture displays how the orchestrator connects external triggers and APIs (Gmail, GitHub, Vertex AI) to internal managed state (Firestore, Cloud Storage).
 
 <p align="center">
   <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="750" />
