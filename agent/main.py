@@ -24,7 +24,7 @@ from google.auth.transport import requests as google_requests
 from google.cloud import firestore, storage
 from google.oauth2 import id_token
 
-from tools import generate_eco_pdf, github_create_pr, query_firestore_inventory, read_pcn_document
+from tools import generate_eco_pdf, github_create_pr, query_firestore_inventory
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -64,11 +64,10 @@ vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
 TRIAGE_INSTRUCTION = """
 You are an autonomous PCN (Product Change Notification) triage agent. Your job is to:
 
-1. FIRST call read_pcn_document with the GCS URI provided in your prompt to retrieve
-   the actual PCN text. Do not guess or hallucinate part numbers — use ONLY the part
-   numbers and replacement parts explicitly stated in the document text.
+1. Read the attached PCN PDF document natively. Do not guess or hallucinate part numbers — use ONLY the part
+   numbers and replacement parts explicitly stated in the document text, tables, or diagrams.
 
-2. From the extracted text, identify:
+2. From the document, identify:
    - The affected part number(s).
    - The nature of the change (EOL, replacement, spec change, packaging change, etc.).
    - The recommended replacement part number(s) if provided.
@@ -84,7 +83,8 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
 
 5. Call github_create_pr with:
    - repo_url: the target GitHub repository URL provided in your prompt.
-   - branch: a descriptive branch name like "pcn/<part-number>-replacement".
+   - part_number: the primary affected part number you identified.
+   - gcs_object_name: the GCS object name provided in your prompt.
    - hal_modifications: a dict mapping file paths to their new content.
      IMPORTANT: use the exact filename from the PCN document (e.g. "hal_ina219.h"),
      NOT an invented subdirectory path (e.g. NOT "hal/hal_ina219.h"). The tool will
@@ -99,7 +99,14 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    - PR link.
 
 7. Do not ask for user confirmation at any step. Act autonomously and completely.
-   Report your actions and findings at the end.
+   Report your actions and findings at the very end as ONLY a valid JSON object
+   matching exactly this schema, with no markdown fences and no surrounding prose:
+   {
+       "extracted_part_number": "...",
+       "replacement_found": true/false,
+       "pr_url": "...",
+       "eco_url": "..."
+   }
 """
 
 # Plain model name — ADK resolves this natively through Vertex AI because
@@ -109,7 +116,7 @@ agent = Agent(
     name="pcn_triage_agent",
     model="gemini-3.5-flash",
     instruction=TRIAGE_INSTRUCTION,
-    tools=[read_pcn_document, query_firestore_inventory, github_create_pr, generate_eco_pdf],
+    tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
 )
 
 # ADK runner with in-memory session service (stateless per invocation)
@@ -170,13 +177,21 @@ def verify_oidc_token(authorization_header: str) -> None:
 # ---------------------------------------------------------------------------
 # Firestore helper — persist agent run
 # ---------------------------------------------------------------------------
-def save_agent_run(gcs_uri: str, target_repo: str, response: str, status: str) -> None:
+def save_agent_run(
+    gcs_uri: str, target_repo: str, response: str, status: str,
+    extracted_part_number: str = None, replacement_found: bool = None,
+    pr_url: str = None, eco_url: str = None
+) -> None:
     get_db().collection(AGENT_RUNS_COLLECTION).add(
         {
             "gcs_uri": gcs_uri,
             "target_repo": target_repo,
             "response": response,
             "status": status,
+            "extracted_part_number": extracted_part_number,
+            "replacement_found": replacement_found,
+            "pr_url": pr_url,
+            "eco_url": eco_url,
             "timestamp": firestore.SERVER_TIMESTAMP,
         }
     )
@@ -238,6 +253,7 @@ async def receive_event(request: Request):
     # 4. Run the ADK agent
     prompt = (
         f"A new PCN document has been uploaded to {gcs_uri}.\n"
+        f"GCS Object Name: {object_name}\n"
         f"Target repository for HAL updates: {GITHUB_TARGET_REPO}\n\n"
         "Triage this PCN autonomously: identify affected parts, check inventory, "
         "open a GitHub PR with necessary HAL changes, and generate the ECO PDF report."
@@ -245,11 +261,19 @@ async def receive_event(request: Request):
 
     session_id = f"pcn-{object_name}-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
 
+    extracted_part_number = None
+    replacement_found = None
+    pr_url = None
+    eco_url = None
+
     try:
         from google.genai import types as genai_types
         user_message = genai_types.Content(
             role="user",
-            parts=[genai_types.Part(text=prompt)],
+            parts=[
+                genai_types.Part.from_uri(file_uri=gcs_uri, mime_type="application/pdf"),
+                genai_types.Part.from_text(text=prompt)
+            ],
         )
 
         # InMemorySessionService.create_session is a coroutine — must be awaited.
@@ -260,29 +284,64 @@ async def receive_event(request: Request):
             session_id=session_id,
         )
 
-        # Use run_async (async for) since we are already inside an async FastAPI
-        # endpoint — avoids the background-thread / event-loop conflict.
-        final_response = ""
-        async for event in runner.run_async(
-            user_id="system",
-            session_id=session_id,
-            new_message=user_message,
-        ):
-            if hasattr(event, "content") and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        final_response += part.text
+        import asyncio
+        import json
+        import re
 
-        status = "COMPLETED"
-        logger.info("Agent run completed for %s", gcs_uri)
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                final_response = ""
+                async for event in runner.run_async(
+                    user_id="system",
+                    session_id=session_id,
+                    new_message=user_message,
+                ):
+                    if hasattr(event, "content") and event.content:
+                        for part in event.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                final_response += part.text
+                status = "COMPLETED"
+                logger.info("Agent run completed for %s", gcs_uri)
+
+                # 5. Parse JSON response defensively
+                json_str = final_response
+                match = re.search(r'```(?:json)?(.*?)```', final_response, re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+
+                try:
+                    data = json.loads(json_str.strip())
+                    extracted_part_number = data.get("extracted_part_number")
+                    replacement_found = data.get("replacement_found")
+                    pr_url = data.get("pr_url")
+                    eco_url = data.get("eco_url")
+                except Exception as exc:
+                    logger.warning("Failed to parse structured JSON from agent response: %s", exc)
+                    status = "COMPLETED_UNSTRUCTURED"
+
+                break
+            except Exception as exc:
+                if attempt == max_attempts - 1:
+                    logger.error("Agent run failed for %s: %s", gcs_uri, exc)
+                    final_response = f"Agent run failed: {exc}"
+                    status = "ERROR"
+                else:
+                    delay = 2 ** attempt
+                    logger.warning(
+                        "Transient error on attempt %d for %s, retrying in %ds: %s",
+                        attempt + 1, gcs_uri, delay, exc
+                    )
+                    await asyncio.sleep(delay)
 
     except Exception as exc:
-        logger.error("Agent run failed for %s: %s", gcs_uri, exc)
-        final_response = f"Agent run failed: {exc}"
+        logger.error("Failed to start agent run for %s: %s", gcs_uri, exc)
+        final_response = f"Failed to start agent: {exc}"
         status = "ERROR"
 
-    # 5. Persist result to Firestore
-    save_agent_run(gcs_uri, GITHUB_TARGET_REPO, final_response, status)
+    # 6. Persist result to Firestore
+    save_agent_run(gcs_uri, GITHUB_TARGET_REPO, final_response, status,
+                   extracted_part_number, replacement_found, pr_url, eco_url)
 
     return {
         "status": "ok",
@@ -294,4 +353,4 @@ async def receive_event(request: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "healthy"}
+    return {"status": "ok"}

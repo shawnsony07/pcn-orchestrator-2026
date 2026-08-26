@@ -297,4 +297,4 @@ async def receive_push(request: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "healthy"}
+    return {"status": "ok"}

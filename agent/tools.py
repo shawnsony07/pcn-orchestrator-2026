@@ -14,7 +14,6 @@ import logging
 import os
 from datetime import datetime, timezone
 
-import pypdf
 from github import Github, GithubException
 from google.cloud import firestore, storage
 from reportlab.lib.pagesizes import letter
@@ -28,40 +27,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GCS_ECO_OUTPUTS_BUCKET = os.environ.get("GCS_ECO_OUTPUTS_BUCKET", "")
-
-
-# ---------------------------------------------------------------------------
-# Tool 1: Read PCN document from GCS
-# ---------------------------------------------------------------------------
-def read_pcn_document(gcs_uri: str) -> dict:
-    """Download a PDF from GCS and return its extracted text content.
-
-    Args:
-        gcs_uri: GCS URI of the PDF, e.g. gs://pcn-raw-documents/abc123.pdf
-
-    Returns:
-        dict with keys 'text' (str) and 'page_count' (int), or 'error' (str).
-    """
-    logger.info("Reading PCN document from %s", gcs_uri)
-    try:
-        # Parse gs://bucket/object
-        without_scheme = gcs_uri.removeprefix("gs://")
-        bucket_name, _, object_name = without_scheme.partition("/")
-
-        bucket = _get_gcs().bucket(bucket_name)
-        blob = bucket.blob(object_name)
-        pdf_bytes = blob.download_as_bytes()
-
-        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        pages = [page.extract_text() or "" for page in reader.pages]
-        full_text = "\n".join(pages).strip()
-
-        logger.info("Extracted %d chars from %d pages in %s",
-                    len(full_text), len(pages), gcs_uri)
-        return {"text": full_text, "page_count": len(pages)}
-    except Exception as exc:
-        logger.error("Failed to read PCN document %s: %s", gcs_uri, exc)
-        return {"error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +92,7 @@ def query_firestore_inventory(part_number: str) -> dict:
 # ---------------------------------------------------------------------------
 # Tool 2 — GitHub PR creation
 # ---------------------------------------------------------------------------
-def github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dict:
+def github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_modifications: dict) -> dict:
     """
     Create a GitHub PR updating HAL header file(s) in the target repository.
 
@@ -139,7 +104,8 @@ def github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dic
 
     Args:
         repo_url: Full GitHub repo URL or "owner/repo" slug.
-        branch:   Name for the new branch (e.g. "pcn/update-INA226-hal").
+        part_number: The part number being triaged (used for branch name).
+        gcs_object_name: The name of the GCS object (used for branch name).
         hal_modifications: Dict mapping file paths (relative to repo root)
                            to their new content strings.
                            Example: {"hal/hal_i2c.h": "<full file content>"}
@@ -149,6 +115,10 @@ def github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dic
     """
     if not GITHUB_TOKEN:
         return {"status": "error", "detail": "GITHUB_TOKEN not set"}
+
+    import hashlib
+    short_hash = hashlib.sha256(gcs_object_name.encode("utf-8")).hexdigest()[:6]
+    branch = f"pcn/{part_number}-{short_hash}"
 
     # Normalise repo_url → "owner/repo"
     repo_slug = repo_url
@@ -268,7 +238,9 @@ def generate_eco_pdf(report_data: str) -> dict:
 
     Args:
         report_data: A freeform string containing the full ECO report content
-                     (part numbers, replacements, justification, affected repos, etc.)
+                     (part numbers, replacements, justification, affected repos, etc.).
+                     DO NOT include a fake "Date Generated" field, the tool handles
+                     the timestamp automatically.
 
     Returns:
         Dict with keys: gcs_uri, object_name, bucket, status.
