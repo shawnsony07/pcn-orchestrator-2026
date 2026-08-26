@@ -1,10 +1,11 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E3F2FD', 'edgeLabelBackground':'#FFFFFF', 'tertiaryColor': '#F5F5F5', 'fontFamily': 'sans-serif', 'lineColor': '#1565C0'}}}%%
 stateDiagram-v2
     direction TB
     
     [*] --> TriageAgent: CloudEvent (GCS finalize)
     
     state "Stage 1: Triage" as TriageAgent {
-        ParsePDF: Extract Parts (Gemini)
+        ParsePDF: Extract Parts (Gemini Multimodal)
         ReturnParts: Output JSON {"parts": [...]}
         ParsePDF --> ReturnParts
     }
@@ -20,6 +21,7 @@ stateDiagram-v2
     ResolutionAgent --> ActionAgent: Pass Parsed JSON via new_message
     
     state "Stage 3: Action" as ActionAgent {
+        direction LR
         CheckFound: Iterate Found Parts
         CreateECO: generate_eco_pdf
         CreatePR: github_create_pr
