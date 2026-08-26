@@ -186,7 +186,28 @@ def github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dic
             return {"status": "error", "detail": str(exc)}
 
     # Commit each modified file
+    # Resolve each file_path against the actual repo tree: if the agent
+    # supplies a path like "hal/hal_ina219.h" but no "hal/" directory exists,
+    # fall back to the bare filename at repo root ("hal_ina219.h").
+    resolved_modifications = {}
     for file_path, new_content in hal_modifications.items():
+        resolved_path = file_path
+        if "/" in file_path:
+            # Check whether this path (or any ancestor dir) exists in the repo
+            try:
+                repo.get_contents(file_path, ref="main")
+                # File exists — use as-is
+            except GithubException:
+                # Path not found — strip to basename
+                basename = file_path.rsplit("/", 1)[-1]
+                logger.info(
+                    "Path %s not found in repo; using root-level %s instead",
+                    file_path, basename,
+                )
+                resolved_path = basename
+        resolved_modifications[resolved_path] = new_content
+
+    for file_path, new_content in resolved_modifications.items():
         try:
             try:
                 existing = repo.get_contents(file_path, ref=branch)

@@ -85,7 +85,10 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
 5. Call github_create_pr with:
    - repo_url: the target GitHub repository URL provided in your prompt.
    - branch: a descriptive branch name like "pcn/<part-number>-replacement".
-   - hal_modifications: a dict of file paths to their updated content.
+   - hal_modifications: a dict mapping file paths to their new content.
+     IMPORTANT: use the exact filename from the PCN document (e.g. "hal_ina219.h"),
+     NOT an invented subdirectory path (e.g. NOT "hal/hal_ina219.h"). The tool will
+     place the file correctly in the repository.
 
 6. Call generate_eco_pdf with a comprehensive ECO report string that includes:
    - Part number affected.
