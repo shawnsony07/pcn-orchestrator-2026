@@ -1,11 +1,12 @@
 """
 agent/tools.py — Action Layer for the PCN Triage Agent
 =======================================================
-Three tool functions callable by the ADK agent:
+Four tool functions callable by the ADK agent:
 
-1. query_firestore_inventory  — look up a part number in the inventory collection
-2. github_create_pr           — open a HAL update PR on the target GitHub repo
-3. generate_eco_pdf           — generate an ECO PDF report and upload to GCS
+1. read_pcn_document          — download PDF from GCS and extract its text
+2. query_firestore_inventory  — look up a part number in the inventory collection
+3. github_create_pr           — open a HAL update PR on the target GitHub repo
+4. generate_eco_pdf           — generate an ECO PDF report and upload to GCS
 """
 
 import io
@@ -13,6 +14,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
+import pypdf
 from github import Github, GithubException
 from google.cloud import firestore, storage
 from reportlab.lib.pagesizes import letter
@@ -26,6 +28,52 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GCS_ECO_OUTPUTS_BUCKET = os.environ.get("GCS_ECO_OUTPUTS_BUCKET", "")
+
+# ---------------------------------------------------------------------------
+# Shared GCS client
+# ---------------------------------------------------------------------------
+_gcs: storage.Client = None
+
+
+def _get_gcs() -> storage.Client:
+    global _gcs
+    if _gcs is None:
+        _gcs = storage.Client()
+    return _gcs
+
+
+# ---------------------------------------------------------------------------
+# Tool 1: Read PCN document from GCS
+# ---------------------------------------------------------------------------
+def read_pcn_document(gcs_uri: str) -> dict:
+    """Download a PDF from GCS and return its extracted text content.
+
+    Args:
+        gcs_uri: GCS URI of the PDF, e.g. gs://pcn-raw-documents/abc123.pdf
+
+    Returns:
+        dict with keys 'text' (str) and 'page_count' (int), or 'error' (str).
+    """
+    logger.info("Reading PCN document from %s", gcs_uri)
+    try:
+        # Parse gs://bucket/object
+        without_scheme = gcs_uri.removeprefix("gs://")
+        bucket_name, _, object_name = without_scheme.partition("/")
+
+        bucket = _get_gcs().bucket(bucket_name)
+        blob = bucket.blob(object_name)
+        pdf_bytes = blob.download_as_bytes()
+
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        full_text = "\n".join(pages).strip()
+
+        logger.info("Extracted %d chars from %d pages in %s",
+                    len(full_text), len(pages), gcs_uri)
+        return {"text": full_text, "page_count": len(pages)}
+    except Exception as exc:
+        logger.error("Failed to read PCN document %s: %s", gcs_uri, exc)
+        return {"error": str(exc)}
 
 # ---------------------------------------------------------------------------
 # Shared GCP clients

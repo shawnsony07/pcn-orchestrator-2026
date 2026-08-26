@@ -24,7 +24,7 @@ from google.auth.transport import requests as google_requests
 from google.cloud import firestore, storage
 from google.oauth2 import id_token
 
-from tools import generate_eco_pdf, github_create_pr, query_firestore_inventory
+from tools import generate_eco_pdf, github_create_pr, query_firestore_inventory, read_pcn_document
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -64,25 +64,30 @@ vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
 TRIAGE_INSTRUCTION = """
 You are an autonomous PCN (Product Change Notification) triage agent. Your job is to:
 
-1. Read the PCN document (provided as a GCS URI) and extract:
+1. FIRST call read_pcn_document with the GCS URI provided in your prompt to retrieve
+   the actual PCN text. Do not guess or hallucinate part numbers — use ONLY the part
+   numbers and replacement parts explicitly stated in the document text.
+
+2. From the extracted text, identify:
    - The affected part number(s).
    - The nature of the change (EOL, replacement, spec change, packaging change, etc.).
    - The recommended replacement part number(s) if provided.
    - The timeline/effective date.
 
-2. For each affected part number, call query_firestore_inventory to check if it exists
-   in the internal inventory and retrieve any known replacement mappings.
+3. For each affected part number found in the document, call query_firestore_inventory
+   to check if it exists in the internal inventory and retrieve any known replacement
+   mappings.
 
-3. Based on the PCN content and inventory data, determine which HAL (Hardware Abstraction
+4. Based on the PCN content and inventory data, determine which HAL (Hardware Abstraction
    Layer) header files in the target repository need updating to reference the replacement
    part. Generate the minimal, correct HAL changes.
 
-4. Call github_create_pr with:
+5. Call github_create_pr with:
    - repo_url: the target GitHub repository URL provided in your prompt.
    - branch: a descriptive branch name like "pcn/<part-number>-replacement".
    - hal_modifications: a dict of file paths to their updated content.
 
-5. Call generate_eco_pdf with a comprehensive ECO report string that includes:
+6. Call generate_eco_pdf with a comprehensive ECO report string that includes:
    - Part number affected.
    - PCN summary.
    - Inventory status.
@@ -90,7 +95,7 @@ You are an autonomous PCN (Product Change Notification) triage agent. Your job i
    - HAL files changed.
    - PR link.
 
-6. Do not ask for user confirmation at any step. Act autonomously and completely.
+7. Do not ask for user confirmation at any step. Act autonomously and completely.
    Report your actions and findings at the end.
 """
 
@@ -101,7 +106,7 @@ agent = Agent(
     name="pcn_triage_agent",
     model="gemini-3.5-flash",
     instruction=TRIAGE_INSTRUCTION,
-    tools=[query_firestore_inventory, github_create_pr, generate_eco_pdf],
+    tools=[read_pcn_document, query_firestore_inventory, github_create_pr, generate_eco_pdf],
 )
 
 # ADK runner with in-memory session service (stateless per invocation)
