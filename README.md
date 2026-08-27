@@ -123,7 +123,7 @@ rm lifecycle.json
 ```
 
 <p align="center">
-  <img src="docs/images/gcs-lifecycle-policy.png" alt="GCS lifecycle policy — 7 day delete rule" width="700" />
+  <img src="docs/images/gcs-lifecycle-policy.png" alt="GCS lifecycle policy — 7 day delete rule" width="900" />
   <br>
   <em>The 7-day delete rule live on <code>pcn-raw-documents</code>.</em>
 </p>
@@ -202,7 +202,7 @@ gcloud eventarc triggers create pcn-gcs-trigger \
 > The trigger's service account must be `pcn-agent-sa`, not the default compute service account. It already has `run.invoker` on `pcn-agent` from step 4; the default compute SA does not, and using it here fails silently against a locked-down service.
 
 <p align="center">
-  <img src="docs/images/eventarc-trigger-details.png" alt="Eventarc trigger configuration" width="700" />
+  <img src="docs/images/eventarc-trigger-details.png" alt="Eventarc trigger configuration" width="900" />
   <br>
   <em>Confirms <code>pcn-agent-sa</code> as the trigger's identity — not the default compute service account.</em>
 </p>
@@ -234,7 +234,7 @@ gcloud pubsub subscriptions create gmail-pcn-sub \
 ```
 
 <p align="center">
-  <img src="docs/images/pubsub-gmail-pcn-sub-details.png" alt="Pub/Sub subscription details" width="700" />
+  <img src="docs/images/pubsub-gmail-pcn-sub-details.png" alt="Pub/Sub subscription details" width="900" />
   <br>
   <em>Push endpoint and push-auth service account confirmed on <code>gmail-pcn-sub</code>.</em>
 </p>
@@ -305,7 +305,7 @@ The most reliable end-to-end test mirrors production exactly:
 1. **Send a test email.** Attach a PDF from `test_pdfs/` to an email from an `ALLOWED_SENDERS` address, to `GMAIL_WATCHED_ADDRESS`.
 
 <p align="center">
-  <img src="docs/images/gmail-test-email.png" alt="Real test email with PCN PDF attached" width="800" />
+  <img src="docs/images/gmail-test-email.png" alt="Real test email with PCN PDF attached" width="900" />
   <br>
   <em>A real trigger — email with a multi-part PCN PDF attached.</em>
 </p>
@@ -503,7 +503,7 @@ Gmail push notification through to a raw PCN PDF landing in Cloud Storage — in
 The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempotency check, cost guard, and the three-stage Triage → Resolution → Action pipeline with every terminal outcome. Stage 2 resolves each extracted part against the `inventory` collection:
 
 <p align="center">
-  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="450" />
+  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="900" />
 </p>
 
 <p align="center">
@@ -516,7 +516,7 @@ The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempot
 The complete system in context — external services (Gmail, GitHub, Vertex AI) and every internal GCP component.
 
 <p align="center">
-  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="750" />
+  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="900" />
 </p>
 
 ---
@@ -560,7 +560,7 @@ A real, complete run — not a mocked example. Source PDF: a genuinely scanned, 
 ```
 
 <p align="center">
-  <img src="docs/images/firestore-agent-runs-detail.png" alt="Firestore agent_runs document, live" width="700" />
+  <img src="docs/images/firestore-agent-runs-detail.png" alt="Firestore agent_runs document, live" width="900" />
   <br>
   <em>The same structured result, live in Firestore — one found part completed, one correctly reported as no match.</em>
 </p>
@@ -599,7 +599,7 @@ One input document, two parts, two independently correct outcomes, in a single a
 2. **Locked-Down Ingress** — both Cloud Run services run `--no-allow-unauthenticated`, relying on OIDC bearer tokens from Eventarc and Pub/Sub respectively. Nothing else can invoke either service.
 
    <p align="center">
-     <img src="docs/images/cloud-run-agent-security.png" alt="pcn-agent Security tab — Require authentication" width="700" />
+     <img src="docs/images/cloud-run-agent-security.png" alt="pcn-agent Security tab — Require authentication" width="900" />
      <br>
      <em>"Require authentication" with IAM enforced — confirmed on <code>pcn-agent</code>.</em>
    </p>
