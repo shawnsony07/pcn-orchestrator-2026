@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/python-3.11-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python" />
-  <img src="https://img.shields.io/badge/Google_ADK-2.0-8A2BE2.svg?style=flat&logo=google&logoColor=white" alt="Google ADK" />
-  <img src="https://img.shields.io/badge/Vertex_AI-Gemini_3.5_Flash-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="Gemini" />
-  <img src="https://img.shields.io/badge/GCP-Cloud_Run_|_Firestore-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="GCP" />
-  <img src="https://img.shields.io/badge/FastAPI-Framework-009688.svg?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python" /></a>
+  <a href="https://cloud.google.com/use-cases/ai-agents"><img src="https://img.shields.io/badge/Google_ADK-2.0-8A2BE2.svg?style=flat&logo=google&logoColor=white" alt="Google ADK" /></a>
+  <a href="https://ai.google.dev/"><img src="https://img.shields.io/badge/Vertex_AI-Gemini_3.5_Flash-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="Gemini" /></a>
+  <a href="https://cloud.google.com/"><img src="https://img.shields.io/badge/GCP-Cloud_Run_|_Firestore-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="GCP" /></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-Framework-009688.svg?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
 </p>
 
 **An autonomous, multi-agent pipeline that reads incoming Product Change Notifications, triages affected components, and ships firmware fixes — with no human in the loop.**
