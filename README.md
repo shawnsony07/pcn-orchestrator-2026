@@ -478,11 +478,11 @@ Mermaid sources live in `docs/diagrams/*.mmd`. Rendered PNGs referenced below.
 Gmail push notification through to a raw PCN PDF landing in Cloud Storage — including the sender-allowlist check. State (`last_history_id`) is tracked in Firestore to avoid reprocessing the same Gmail history window twice.
 
 <p align="center">
-  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="700" />
+  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="550" />
 </p>
 
 <p align="center">
-  <img src="docs/images/firestore-gmail-sync-state.png" alt="Firestore gmail_sync_state document" width="500" />
+  <img src="docs/images/firestore-gmail-sync-state.png" alt="Firestore gmail_sync_state document" width="900" />
   <br>
   <em>The live <code>gmail_sync_state</code> document — a single field, <code>last_history_id</code>, tracking exactly where ingestion left off.</em>
 </p>
@@ -491,11 +491,11 @@ Gmail push notification through to a raw PCN PDF landing in Cloud Storage — in
 The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempotency check, cost guard, and the three-stage Triage → Resolution → Action pipeline with every terminal outcome. Stage 2 resolves each extracted part against the `inventory` collection:
 
 <p align="center">
-  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="700" />
+  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="450" />
 </p>
 
 <p align="center">
-  <img src="docs/images/firestore-inventory-detail.png" alt="Firestore inventory document" width="500" />
+  <img src="docs/images/firestore-inventory-detail.png" alt="Firestore inventory document" width="900" />
   <br>
   <em>One seeded inventory record — the exact schema Stage 2 queries against.</em>
 </p>
