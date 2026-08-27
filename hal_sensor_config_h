@@ -1,0 +1,15 @@
+#ifndef HAL_SENSOR_CONFIG_H
+#define HAL_SENSOR_CONFIG_H
+
+/*
+ * HAL Sensor Configuration
+ * Automatically updated via PCN Triage Pipeline
+ * Original Part: BME280
+ * Replacement Part: BME688
+ * Reference PCN: ST-PCN-2026-1187
+ */
+
+#define ACTIVE_SENSOR_BME688
+#define SENSOR_PART_NUMBER "BME688"
+
+#endif // HAL_SENSOR_CONFIG_H
