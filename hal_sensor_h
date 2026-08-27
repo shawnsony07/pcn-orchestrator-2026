@@ -2,11 +2,12 @@
 #define HAL_SENSOR_H
 
 /*
- * HAL Sensor Configuration Header
- * Generated for PCN: ST-PCN-2026-1187
- * Replacing obsolete BME280 with BME688.
+ * Hardware Abstraction Layer for Temperature and Pressure Sensor
+ * Legacy: BME280
+ * Replacement: BME688 (PCN ST-PCN-2026-1187)
  */
 
-#define HAL_SENSOR_BME688
+#define HAL_SENSOR_MODEL "BME688"
+#define HAL_SENSOR_I2C_ADDR 0x76
 
 #endif // HAL_SENSOR_H
