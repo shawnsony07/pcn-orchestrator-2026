@@ -111,7 +111,7 @@ rm lifecycle.json
 ```
 
 <p align="center">
-  <img src="images/gcs-lifecycle-policy.png" alt="GCS lifecycle policy — 7 day delete rule" width="700" />
+  <img src="docs/images/gcs-lifecycle-policy.png" alt="GCS lifecycle policy — 7 day delete rule" width="700" />
   <br>
   <em>The 7-day delete rule live on <code>pcn-raw-documents</code>.</em>
 </p>
@@ -169,7 +169,7 @@ gcloud run services describe pcn-agent --region=asia-south1 --format="value(stat
 ```
 
 <p align="center">
-  <img src="images/cloud-run-services-list.png" alt="Both Cloud Run services, locked down" width="900" />
+  <img src="docs/images/cloud-run-services-list.png" alt="Both Cloud Run services, locked down" width="900" />
   <br>
   <em>Both services live, both requiring authentication — nothing is publicly reachable.</em>
 </p>
@@ -190,7 +190,7 @@ gcloud eventarc triggers create pcn-gcs-trigger \
 > The trigger's service account must be `pcn-agent-sa`, not the default compute service account. It already has `run.invoker` on `pcn-agent` from step 4; the default compute SA does not, and using it here fails silently against a locked-down service.
 
 <p align="center">
-  <img src="images/eventarc-trigger-details.png" alt="Eventarc trigger configuration" width="700" />
+  <img src="docs/images/eventarc-trigger-details.png" alt="Eventarc trigger configuration" width="700" />
   <br>
   <em>Confirms <code>pcn-agent-sa</code> as the trigger's identity — not the default compute service account.</em>
 </p>
@@ -222,7 +222,7 @@ gcloud pubsub subscriptions create gmail-pcn-sub \
 ```
 
 <p align="center">
-  <img src="images/pubsub-gmail-pcn-sub-details.png" alt="Pub/Sub subscription details" width="700" />
+  <img src="docs/images/pubsub-gmail-pcn-sub-details.png" alt="Pub/Sub subscription details" width="700" />
   <br>
   <em>Push endpoint and push-auth service account confirmed on <code>gmail-pcn-sub</code>.</em>
 </p>
@@ -293,7 +293,7 @@ The most reliable end-to-end test mirrors production exactly:
 1. **Send a test email.** Attach a PDF from `test_pdfs/` to an email from an `ALLOWED_SENDERS` address, to `GMAIL_WATCHED_ADDRESS`.
 
 <p align="center">
-  <img src="images/gmail-test-email.png" alt="Real test email with PCN PDF attached" width="800" />
+  <img src="docs/images/gmail-test-email.png" alt="Real test email with PCN PDF attached" width="800" />
   <br>
   <em>A real trigger — email with a multi-part PCN PDF attached.</em>
 </p>
@@ -318,7 +318,7 @@ The most reliable end-to-end test mirrors production exactly:
 | 3-page, two parts (one seeded, one not) | Multi-page reading + independent per-part resolution in one document |
 
 <p align="center">
-  <img src="images/gcs-pcn-raw-documents-bucket.png" alt="Raw PCN test documents in GCS" width="900" />
+  <img src="docs/images/gcs-pcn-raw-documents-bucket.png" alt="Raw PCN test documents in GCS" width="900" />
   <br>
   <em>Every test PDF used in verification, landed in <code>pcn-raw-documents</code> via real Gmail triggers and direct uploads.</em>
 </p>
@@ -385,7 +385,7 @@ Worse, this exact gap caused a real hallucination early in development: given on
 The fix: pass the PDF directly to Gemini via `Part.from_uri(gcs_uri, mime_type="application/pdf")` — genuine multimodal input, not a text proxy. This was verified against a PDF built specifically to have **zero extractable text** (confirmed via `pypdf` returning 0 characters across all pages) and Gemini correctly read the part number, manufacturer, and replacement directly from the rendered image.
 
 <p align="center">
-  <img src="images/adobe-scanned-pdf-no-text-layer.png" alt="Scanned PCN PDF with no selectable text layer" width="900" />
+  <img src="docs/images/adobe-scanned-pdf-no-text-layer.png" alt="Scanned PCN PDF with no selectable text layer" width="900" />
   <br>
   <em>Proof it's a genuine image scan, not styled text — Adobe itself offers "Recognize text" (OCR) on this selection, which only appears when there's no real text layer to select.</em>
 </p>
@@ -435,7 +435,7 @@ No service account key JSON files exist anywhere in this project, locally or in 
 ## Project Structure
 
 <p align="center">
-  <img src="images/github-repo-overview.png" alt="Repository overview on GitHub" width="900" />
+  <img src="docs/images/github-repo-overview.png" alt="Repository overview on GitHub" width="900" />
   <br>
   <em>The live repository — commits, releases, structure.</em>
 </p>
@@ -456,8 +456,9 @@ pcn-orchestrator-2026/
 │   ├── gmail_watch_renew.py      # Non-interactive weekly watch() renewal
 │   └── seed_inventory.py         # Seeds the Firestore `inventory` collection with test parts
 ├── test_pdfs/                    # Sample PCN PDFs covering every code path (see Testing section)
-├── images/                       # README screenshots
-├── docs/diagrams/                # Mermaid diagram sources (.mmd) + rendered PNGs
+├── docs/
+│   ├── diagrams/                 # Mermaid diagram sources (.mmd) + rendered PNGs
+│   └── images/                   # README screenshots
 ├── secrets/                      # gitignored — Gmail OAuth client JSON, never committed
 ├── .github/workflows/
 │   └── ci-validation.yml         # flake8 + import smoke tests
@@ -481,7 +482,7 @@ Gmail push notification through to a raw PCN PDF landing in Cloud Storage — in
 </p>
 
 <p align="center">
-  <img src="images/firestore-gmail-sync-state.png" alt="Firestore gmail_sync_state document" width="500" />
+  <img src="docs/images/firestore-gmail-sync-state.png" alt="Firestore gmail_sync_state document" width="500" />
   <br>
   <em>The live <code>gmail_sync_state</code> document — a single field, <code>last_history_id</code>, tracking exactly where ingestion left off.</em>
 </p>
@@ -494,7 +495,7 @@ The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempot
 </p>
 
 <p align="center">
-  <img src="images/firestore-inventory-detail.png" alt="Firestore inventory document" width="500" />
+  <img src="docs/images/firestore-inventory-detail.png" alt="Firestore inventory document" width="500" />
   <br>
   <em>One seeded inventory record — the exact schema Stage 2 queries against.</em>
 </p>
@@ -515,7 +516,7 @@ A real, complete run — not a mocked example. Source PDF: a genuinely scanned, 
 **Cloud Run logs — full pipeline, including a Pub/Sub redelivery correctly skipped:**
 
 <p align="center">
-  <img src="images/cloud-run-logs-pcn-agent.png" alt="pcn-agent logs showing full TRIAGE/RESOLUTION/ACTION pipeline plus duplicate delivery skip" width="900" />
+  <img src="docs/images/cloud-run-logs-pcn-agent.png" alt="pcn-agent logs showing full TRIAGE/RESOLUTION/ACTION pipeline plus duplicate delivery skip" width="900" />
 </p>
 
 **Resulting Firestore `agent_runs` document:**
@@ -547,7 +548,7 @@ A real, complete run — not a mocked example. Source PDF: a genuinely scanned, 
 ```
 
 <p align="center">
-  <img src="images/firestore-agent-runs-detail.png" alt="Firestore agent_runs document, live" width="700" />
+  <img src="docs/images/firestore-agent-runs-detail.png" alt="Firestore agent_runs document, live" width="700" />
   <br>
   <em>The same structured result, live in Firestore — one found part completed, one correctly reported as no match.</em>
 </p>
@@ -558,13 +559,13 @@ A real, complete run — not a mocked example. Source PDF: a genuinely scanned, 
 - The second part (`LM7805CT-DEPRECATED`) correctly produced **no PR and no ECO** — the inventory lookup failed cleanly and the pipeline reported it rather than inventing a fix.
 
 <p align="center">
-  <img src="images/github-pr-files-changed.png" alt="PR #27 Files changed — hal_bme280.h with correct .h extension" width="900" />
+  <img src="docs/images/github-pr-files-changed.png" alt="PR #27 Files changed — hal_bme280.h with correct .h extension" width="900" />
   <br>
   <em>The actual diff — <code>hal_bme280.h</code>, correctly extensioned (see the filename-mangling bug in Findings & Learnings).</em>
 </p>
 
 <p align="center">
-  <img src="images/gcs-eco-outputs-bucket.png" alt="Generated ECO PDFs in GCS" width="900" />
+  <img src="docs/images/gcs-eco-outputs-bucket.png" alt="Generated ECO PDFs in GCS" width="900" />
   <br>
   <em>Every ECO PDF generated across all test runs, landing in <code>eco-outputs</code>.</em>
 </p>
@@ -578,7 +579,7 @@ One input document, two parts, two independently correct outcomes, in a single a
 1. **Sender Allowlist** — the ingestor checks the `From` header against `ALLOWED_SENDERS` before any processing. Confirmed rejecting real unauthorized senders in production:
 
    <p align="center">
-     <img src="images/cloud-run-logs-pcn-ingestor.png" alt="pcn-ingestor logs rejecting unauthorized senders" width="900" />
+     <img src="docs/images/cloud-run-logs-pcn-ingestor.png" alt="pcn-ingestor logs rejecting unauthorized senders" width="900" />
      <br>
      <em>Real rejected messages — <code>no-reply@email.claude.com</code>, <code>noreply-accounts@google.com</code> — neither in <code>ALLOWED_SENDERS</code>, both correctly dropped before any processing.</em>
    </p>
@@ -586,7 +587,7 @@ One input document, two parts, two independently correct outcomes, in a single a
 2. **Locked-Down Ingress** — both Cloud Run services run `--no-allow-unauthenticated`, relying on OIDC bearer tokens from Eventarc and Pub/Sub respectively. Nothing else can invoke either service.
 
    <p align="center">
-     <img src="images/cloud-run-agent-security.png" alt="pcn-agent Security tab — Require authentication" width="700" />
+     <img src="docs/images/cloud-run-agent-security.png" alt="pcn-agent Security tab — Require authentication" width="700" />
      <br>
      <em>"Require authentication" with IAM enforced — confirmed on <code>pcn-agent</code>.</em>
    </p>
@@ -641,7 +642,7 @@ gcloud pubsub subscriptions pull pcn-dead-letter-sub --auto-ack --project=<your-
 ```
 
 <p align="center">
-  <img src="images/pcn-dead-letter-topic-subscription.png" alt="pcn-dead-letter-topic with a real subscription attached" width="900" />
+  <img src="docs/images/pcn-dead-letter-topic-subscription.png" alt="pcn-dead-letter-topic with a real subscription attached" width="900" />
   <br>
   <em><code>pcn-dead-letter-sub</code> now attached — the topic previously warned that undelivered messages would be lost with no subscription retaining them; this closes that gap.</em>
 </p>
@@ -654,13 +655,13 @@ gcloud pubsub subscriptions pull pcn-dead-letter-sub --auto-ack --project=<your-
 - **Scale-to-zero compute:** both Cloud Run services run with `min-instances=0` — no cost when idle between PCNs.
 
   <p align="center">
-    <img src="images/cloud-run-agent-revisions.png" alt="pcn-agent revision history, Scaling Auto Min 0" width="900" />
+    <img src="docs/images/cloud-run-agent-revisions.png" alt="pcn-agent revision history, Scaling Auto Min 0" width="900" />
     <br>
     <em>Scaling: Auto (Min: 0, Max: 20) — confirmed on the live service.</em>
   </p>
 
   <p align="center">
-    <img src="images/cloud-run-agent-observability.png" alt="pcn-agent request count and container instance metrics" width="900" />
+    <img src="docs/images/cloud-run-agent-observability.png" alt="pcn-agent request count and container instance metrics" width="900" />
     <br>
     <em>Request count and container instance graphs — traffic only spikes during actual test runs, idle the rest of the time.</em>
   </p>
