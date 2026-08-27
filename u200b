@@ -1,0 +1,7 @@
+#ifndef HAL_BME280_H
+#define HAL_BME280_H
+
+// Obsolete part BME280 has been replaced by BME688
+#define BME280_REPLACEMENT_BME688 1
+
+#endif // HAL_BME280_H
