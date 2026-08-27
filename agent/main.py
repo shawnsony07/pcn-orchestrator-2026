@@ -85,18 +85,18 @@ If no part numbers can be identified, output {"parts": []}. Do not guess or forc
 
 STAGE2_INSTRUCTION = """
 [RESOLUTION]
-You are the Resolution Agent in an autonomous PCN pipeline. 
+You are the Resolution Agent in an autonomous PCN pipeline.
 The user will provide the part numbers extracted by the Triage Agent.
 
-For each part number listed in the triage output, call query_firestore_inventory to check if it 
+For each part number listed in the triage output, call query_firestore_inventory to check if it
 exists in the internal inventory and retrieve any known replacement mappings.
 
-CRITICAL INVENTORY RULE: If query_firestore_inventory returns {"found": false} for a part number, 
+CRITICAL INVENTORY RULE: If query_firestore_inventory returns {"found": false} for a part number,
 you MUST NOT invent, guess, or suggest a replacement part under any circumstances.
 
 Output a structured JSON array, one entry per part, with no markdown fences and no surrounding prose:
 {"parts": [
-  {"part_number": "...", "found": true/false, "replacement_part_numbers": [...], "datasheet_uri": "...", "status": "..."}
+  {"part_number": "...", "found": true, "replacement_part_numbers": [...], "status": "..."}
 ]}
 """
 
@@ -158,17 +158,20 @@ session_service = InMemorySessionService()
 _db: firestore.Client = None
 _gcs: storage.Client = None
 
+
 def get_db() -> firestore.Client:
     global _db
     if _db is None:
         _db = firestore.Client()
     return _db
 
+
 def get_gcs() -> storage.Client:
     global _gcs
     if _gcs is None:
         _gcs = storage.Client()
     return _gcs
+
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -178,6 +181,8 @@ app = FastAPI(title="pcn-agent")
 # ---------------------------------------------------------------------------
 # OIDC token verification helper
 # ---------------------------------------------------------------------------
+
+
 def verify_oidc_token(authorization_header: str) -> None:
     """Verify Eventarc-issued OIDC Bearer token. Raises HTTPException(401) on failure."""
     if not authorization_header or not authorization_header.startswith("Bearer "):
@@ -201,12 +206,15 @@ def verify_oidc_token(authorization_header: str) -> None:
 # ---------------------------------------------------------------------------
 # Firestore helper — persist agent run
 # ---------------------------------------------------------------------------
+
+
 def save_agent_run(
     gcs_uri: str, target_repo: str, response: str, status: str,
     extracted_parts: list = None,
 ) -> None:
     db = get_db()
-    docs = list(db.collection(AGENT_RUNS_COLLECTION).where(filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
+    docs = list(db.collection(AGENT_RUNS_COLLECTION).where(
+        filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
     data = {
         "gcs_uri": gcs_uri,
         "target_repo": target_repo,
@@ -223,7 +231,11 @@ def save_agent_run(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-async def run_stage_with_retry(runner: Runner, session_id: str, new_message: genai_types.Content, stage_name: str) -> str:
+
+
+async def run_stage_with_retry(
+    runner: Runner, session_id: str, new_message: genai_types.Content, stage_name: str
+) -> str:
     """Executes a runner with up to 3 retries on failure."""
     max_attempts = 3
     for attempt in range(max_attempts):
@@ -244,8 +256,10 @@ async def run_stage_with_retry(runner: Runner, session_id: str, new_message: gen
                 logger.error("%s run failed: %s", stage_name, exc)
                 raise
             delay = 2 ** attempt
-            logger.warning("%s Retry attempt %d/3 after transient error, retrying in %ds: %s", stage_name, attempt + 2, delay, exc)
+            logger.warning("%s Retry attempt %d/3 after transient error, retrying in %ds: %s",
+                           stage_name, attempt + 2, delay, exc)
             await asyncio.sleep(delay)
+
 
 def extract_json_from_response(response: str) -> dict:
     """Parses JSON defensively, stripping markdown fences if present."""
@@ -287,11 +301,15 @@ async def receive_event(request: Request):
 
     # 3. Idempotency check
     db = get_db()
-    existing_runs = list(db.collection(AGENT_RUNS_COLLECTION).where(filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
+    existing_runs = list(db.collection(AGENT_RUNS_COLLECTION).where(
+        filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
     if existing_runs:
         run_data = existing_runs[0].to_dict()
         existing_status = run_data.get("status")
-        logger.info("Duplicate delivery skipped: agent_run already exists for %s with status %s", gcs_uri, existing_status)
+        logger.info(
+            "Duplicate delivery skipped: agent_run already exists for %s with status %s",
+            gcs_uri, existing_status
+        )
         return {"status": "ok", "detail": "duplicate delivery skipped"}
 
     # 4. Cost guard — check PDF size
@@ -358,7 +376,9 @@ async def receive_event(request: Request):
             role="user",
             parts=[genai_types.Part.from_text(text=resolution_prompt)]
         )
-        resolution_response = await run_stage_with_retry(resolution_runner, session_id, resolution_message, "[RESOLUTION]")
+        resolution_response = await run_stage_with_retry(
+            resolution_runner, session_id, resolution_message, "[RESOLUTION]"
+        )
         resolution_data = extract_json_from_response(resolution_response)
         resolved_parts = resolution_data.get("parts", [])
         found_count = sum(1 for p in resolved_parts if p.get("found"))
