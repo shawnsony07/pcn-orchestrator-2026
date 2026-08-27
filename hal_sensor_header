@@ -1,0 +1,10 @@
+#ifndef HAL_SENSOR_H
+#define HAL_SENSOR_H
+
+// Affected Part: BME280 (Obsolete)
+// Replacement Part: BME688
+// Updated via autonomous PCN pipeline for ST-PCN-2026-1187
+
+#define SENSOR_MODEL_BME688
+
+#endif // HAL_SENSOR_H
