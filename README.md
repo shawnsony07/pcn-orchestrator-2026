@@ -1,7 +1,7 @@
 # PCN Triage Orchestrator
 
 <p align="center">
-  <img src="docs/images/logo.png" alt="PCN Triage Orchestrator Logo" width="550" />
+  <img src="docs/images/logo.png" alt="PCN Triage Orchestrator Logo" width="650" />
 </p>
 
 <p align="center">
