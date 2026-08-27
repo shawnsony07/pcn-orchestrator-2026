@@ -1,0 +1,7 @@
+#ifndef HAL_SENSOR_H
+#define HAL_SENSOR_H
+
+/* Hardware Abstraction Layer for Environmental Sensor */
+#define SENSOR_MODEL_BME688
+
+#endif // HAL_SENSOR_H
