@@ -1,7 +1,7 @@
 # PCN Triage Orchestrator
 
 <p align="center">
-  <img src="docs/images/logo.png" alt="PCN Triage Orchestrator Logo" width="200" />
+  <img src="docs/images/logo.png" alt="PCN Triage Orchestrator Logo" width="550" />
 </p>
 
 <p align="center">
@@ -503,7 +503,7 @@ Gmail push notification through to a raw PCN PDF landing in Cloud Storage — in
 The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempotency check, cost guard, and the three-stage Triage → Resolution → Action pipeline with every terminal outcome. Stage 2 resolves each extracted part against the `inventory` collection:
 
 <p align="center">
-  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="900" />
+  <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="700" />
 </p>
 
 <p align="center">
@@ -516,7 +516,7 @@ The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempot
 The complete system in context — external services (Gmail, GitHub, Vertex AI) and every internal GCP component.
 
 <p align="center">
-  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="900" />
+  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="700" />
 </p>
 
 ---
