@@ -478,7 +478,7 @@ Mermaid sources live in `docs/diagrams/*.mmd`. Rendered PNGs referenced below.
 Gmail push notification through to a raw PCN PDF landing in Cloud Storage — including the sender-allowlist check. State (`last_history_id`) is tracked in Firestore to avoid reprocessing the same Gmail history window twice.
 
 <p align="center">
-  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="550" />
+  <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="900" />
 </p>
 
 <p align="center">
@@ -504,7 +504,7 @@ The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempot
 The complete system in context — external services (Gmail, GitHub, Vertex AI) and every internal GCP component.
 
 <p align="center">
-  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="1000" />
+  <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="750" />
 </p>
 
 ---
