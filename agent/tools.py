@@ -175,10 +175,10 @@ def github_create_pr(
     for item in modifications_list:
         file_path = item.get("path", "")
         new_content = item.get("content", "")
-        
+
         if not file_path:
             continue
-            
+
         # Clean up any weird unicode characters like zero-width spaces or quotes
         file_path = file_path.strip().strip("\u200b").strip("'").strip('"')
 
@@ -188,7 +188,7 @@ def github_create_pr(
             file_path = file_path[:-2] + ".h"
         elif file_path.endswith("_c"):
             file_path = file_path[:-2] + ".c"
-            
+
         resolved_path = file_path
         if "/" in file_path:
             # Check whether this path (or any ancestor dir) exists in the repo

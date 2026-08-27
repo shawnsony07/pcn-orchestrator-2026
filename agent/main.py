@@ -108,7 +108,8 @@ The user will provide the inventory status for the parts from the Resolution Age
 For each part where "found" is true:
 1. Determine which HAL (Hardware Abstraction Layer) header files in the target repository need updating
    to reference the replacement part. Generate the minimal, correct HAL changes.
-   CRITICAL INSTRUCTION: The file path MUST exactly match the pattern `hal_<part_number_lowercase>.h`. Do not invent other filenames or nested paths (e.g. use `hal_bme280.h`).
+   CRITICAL INSTRUCTION: The file path MUST exactly match the pattern `hal_<part_number_lowercase>.h`.
+   Do not invent other filenames or nested paths (e.g. use `hal_bme280.h`).
 2. Call github_create_pr to open a PR for that part. Once it returns SUCCESS, DO NOT call it again for the same part.
 3. Call generate_eco_pdf to generate the ECO report for that part.
 
