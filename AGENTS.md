@@ -4,16 +4,14 @@
 
 This is not a greenfield build. The following infrastructure is **already provisioned and live**
 in GCP project `pcn-orchestrator-2026` (region `asia-south1`). Do not attempt to recreate any of it.
-Your job is to write/replace the application code inside `ingestor/` and `agent/` to match this spec.
+Your job is to write/maintain the application code inside `ingestor/` and `agent/` to match this spec.
 
 Already live:
-- GCS buckets: `pcn-raw-documents`, `eco-outputs`
+- GCS buckets: `pcn-raw-documents`, `eco-outputs` (both with a 7-day object lifecycle delete policy)
 - Firestore (Native mode) database, initialized
 - Service account `pcn-agent-sa@pcn-orchestrator-2026.iam.gserviceaccount.com` with roles:
   Storage Admin, Cloud Datastore User, Eventarc Event Receiver, Vertex AI User
-- Cloud Run service `pcn-agent` (asia-south1) — deployed from a stub, **locked down**
-  (`roles/run.invoker` granted only to `pcn-agent-sa`, not public)
-- Cloud Run service `pcn-ingestor` (asia-south1) — deployed from a stub, **locked down**
+- Cloud Run services `pcn-agent` and `pcn-ingestor` (asia-south1), both **locked down**
   (`roles/run.invoker` granted only to `pcn-agent-sa`, not public)
 - Eventarc trigger `pcn-gcs-trigger`: fires on `google.cloud.storage.object.v1.finalized` for
   bucket `pcn-raw-documents`, targets `pcn-agent`, runs as `pcn-agent-sa`
@@ -21,16 +19,18 @@ Already live:
   granted `roles/pubsub.publisher`
 - Pub/Sub push subscription `gmail-pcn-sub`: topic `gmail-pcn-notifications`, push endpoint
   is the `pcn-ingestor` URL, push auth service account is `pcn-agent-sa`
-- Gmail API `users.watch()` already registered for mailbox `shawngdg2005@gmail.com`, pushing
-  to `gmail-pcn-notifications` (expires every ~7 days — see Section 6, renewal is TODO)
+- Gmail API `users.watch()` registered for mailbox `shawngdg2005@gmail.com`, pushing to
+  `gmail-pcn-notifications`. Expires every ~7 days — renewal is manual via
+  `scripts/gmail_watch_renew.py` until a Cloud Scheduler job is added (see Section 6).
 - Local dev auth is via ADC impersonation (`gcloud auth application-default login
   --impersonate-service-account=pcn-agent-sa@pcn-orchestrator-2026.iam.gserviceaccount.com`).
-  **No service account key files exist or can be created** — an org policy
-  (`iam.disableServiceAccountKeyCreation`) blocks key creation. Do not write code that expects
+  **No service account key files exist or can be created** — org policy
+  `iam.disableServiceAccountKeyCreation` blocks key creation. Never write code that expects
   a key file, and never call `GOOGLE_APPLICATION_CREDENTIALS` with a JSON key path.
 
-Email ingestion does **not** use SendGrid. There is no owned domain available for MX records.
-Ingestion is Gmail API + Pub/Sub push (see Section 3).
+Email ingestion is Gmail API + Pub/Sub push, **not** SendGrid — there is no owned domain
+available for MX records, so the SendGrid Inbound Parse approach was abandoned in favor of
+watching a Gmail inbox directly.
 
 ---
 
@@ -61,171 +61,215 @@ pcn-orchestrator-2026/
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── scripts/
-│   ├── gmail_oauth_setup.py      # one-time local OAuth authorization, already run once
-│   └── gmail_watch_renew.py      # to be built — see Section 6
-├── secrets/                      # gitignored, holds OAuth client JSON, never committed
+│   ├── gmail_oauth_setup.py      # one-time local OAuth authorization
+│   ├── gmail_watch_renew.py      # non-interactive weekly watch() renewal
+│   └── seed_inventory.py         # seeds Firestore `inventory` collection with test data
+├── test_pdfs/                    # sample PCN PDFs for manual/regression testing
+├── docs/diagrams/                # architecture diagram sources + rendered PNGs
+├── secrets/                      # gitignored, holds the Gmail OAuth client JSON
 ├── .github/workflows/
 │   └── ci-validation.yml
-├── architecture.png
 ├── .env.example
 ├── .env                          # gitignored, real local values, never committed
 ├── .gitignore
+├── AGENTS.md
 └── README.md
 ```
-
-`ingestor/` and `agent/` currently contain placeholder stub code (a bare `POST /` returning
-`{"status": "ok"}`) that was deployed only to reserve the Cloud Run URLs and validate the
-Pub/Sub and Eventarc wiring end to end. **Replace both stubs entirely** with the real
-implementation below.
 
 ---
 
 ## 3. `ingestor/main.py` — Gmail Push Receiver
 
-Implements a FastAPI server receiving Pub/Sub push messages (not raw email — Gmail API events).
+FastAPI server receiving Pub/Sub push messages (Gmail API change notifications, not raw email).
 
 1. **Endpoint:** `POST /`, accepts Pub/Sub's push JSON envelope:
    ```json
    { "message": { "data": "<base64>", "messageId": "...", "publishTime": "..." }, "subscription": "..." }
    ```
 2. **Auth verification:** Pub/Sub push includes a signed OIDC identity token in the
-   `Authorization: Bearer <token>` header, issued for the service account configured on the
-   subscription (`pcn-agent-sa`). Verify this token (audience = the service's own URL, issuer =
-   Google) before processing. Reject with `401` if invalid or missing. Do not implement any
-   other authentication scheme here — Pub/Sub push auth replaces the SendGrid-style signature
-   check entirely.
+   `Authorization: Bearer <token>` header, issued for `pcn-agent-sa`. Verify this token
+   (audience = the service's own `SERVICE_URL`, issuer = Google) before processing anything.
+   Reject with `401` if invalid or missing.
 3. **Decode payload:** `message.data` is base64 JSON: `{"emailAddress": "...", "historyId": "..."}`.
-   This tells you *something changed*, not what — you must fetch the actual message.
-4. **Fetch new message via Gmail API:**
-   - Maintain the last-processed `historyId` in Firestore (collection `gmail_sync_state`,
-     single document, field `last_history_id`). On first run, seed it from Firestore or fall
-     back to the `historyId` in the current push payload.
+   This only signals *something changed* — the actual message must be fetched separately.
+4. **Fetch new message(s) via Gmail API:**
+   - Maintain `last_history_id` in Firestore (collection `gmail_sync_state`, single document).
+     Seed from Firestore first; fall back to the current push payload's `historyId` if unset.
    - Call `users.history.list(userId="me", startHistoryId=<last known id>)` to find new
      messages added to `INBOX` since then.
-   - For each new message: call `users.messages.get(userId="me", id=<msg id>)` to retrieve it.
-   - Extract the `From` header and verify it against `ALLOWED_SENDERS` (env var, comma-separated).
-     If not in the allowlist, log a rejection message and skip processing without advancing history
-     in a way that causes infinite loops.
-   - Update the stored `last_history_id` in Firestore after successful processing.
+   - For each new message: call `users.messages.get(userId="me", id=<msg id>)`.
+   - Extract the `From` header (parse out just the email address) and check it against
+     `ALLOWED_SENDERS` (env var, comma-separated, case-insensitive match). If not allowed,
+     log the rejection and skip this message — do not download its attachment, do not upload
+     to GCS. Still advance past it so it isn't reprocessed forever.
+   - Update `last_history_id` in Firestore after each message is handled (whether processed
+     or rejected).
 5. **Extract PDF attachment:** walk the message payload parts for `mimeType ==
    "application/pdf"`, fetch via `users.messages.attachments.get`, decode from base64url.
 6. **Upload to GCS:** upload the decoded PDF bytes to bucket `pcn-raw-documents`, object name
    `<gmail-message-id>.pdf`. This upload is what fires the existing Eventarc trigger — do not
-   call the agent directly from here, the two services stay decoupled exactly as before.
-7. **Auth for outbound calls (Gmail API, Firestore, GCS):** Gmail API calls use OAuth (refresh
-   token from env vars — see Section 5), Firestore/GCS calls use ADC (automatic on Cloud Run via
-   attached `pcn-agent-sa`, and via impersonation locally — no code difference needed for either).
-8. **Response:** always return `200 OK` promptly (Pub/Sub retries on non-2xx, and slow acks
-   cause backlog) — do the GCS upload synchronously before returning, this ingestion path is
-   not expected to be slow enough to need backgrounding for a hackathon-scale demo.
+   call the agent service directly, the two services stay fully decoupled.
+7. **Auth for outbound calls:** Gmail API calls use OAuth (refresh token from env vars).
+   Firestore/GCS calls use ADC — automatic via the attached `pcn-agent-sa` identity on Cloud
+   Run, and via impersonation locally. No code branching needed for either environment.
+8. **Response:** always return `200 OK` promptly. Do the GCS upload synchronously before
+   returning — this path isn't expected to be slow enough to need backgrounding.
+9. **`GET /healthz`:** always returns `200 {"status": "ok"}`. No OIDC verification on this
+   route specifically — it's a plain liveness check.
 
 ---
 
 ## 4. `agent/tools.py` — Action Layer
 
-Three tool functions:
+Three tool functions, shared across the multi-agent pipeline (Section 5) — assigned to
+whichever stage needs them, logic itself does not change per-stage:
 
 1. **`query_firestore_inventory(part_number: str) -> dict`**
    Queries Firestore collection `inventory`. Exact document schema:
    ```json
    { "part_number": "str", "replacement_part_numbers": ["str"], "status": "str", "datasheet_uri": "str" }
    ```
-2. **`github_create_pr(repo_url: str, branch: str, hal_modifications: dict) -> dict`**
-   Use `PyGithub`. Auth via `GITHUB_TOKEN` env var (fine-grained PAT, scoped to
-   `Contents: write` + `Pull requests: write` on the target repo only). Clone/checkout the
-   target repo, update HAL header file(s) per `hal_modifications`, commit to a new branch,
-   open a PR against `main`.
-3. **`generate_eco_pdf(report_data: str) -> dict`**
-   Generate a PDF (use `reportlab` or `fpdf2`) and upload to bucket `eco-outputs`, object name
-   `ECO-<timestamp>.pdf`.
+   On no match, return exactly `{"found": false, "part_number": <input>}` — no other keys,
+   no guessed data.
+
+2. **`github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_modifications: dict) -> dict`**
+   Use `PyGithub` via the GitHub Contents API (`repo.update_file()`), not a local git clone.
+   Compute the branch name deterministically in code, never left to LLM discretion:
+   `branch = f"pcn/{part_number}-{hashlib.sha256(gcs_object_name.encode()).hexdigest()[:6]}"`.
+   If the branch already exists (retrigger of the same source document), reuse it — add the
+   new commit(s) to the existing branch/PR rather than opening a duplicate PR. Open a PR
+   against `main` if one doesn't already exist for this branch. Auth via `GITHUB_TOKEN`
+   (fine-grained PAT, scoped to `Contents: write` + `Pull requests: write` on the target repo
+   only).
+   *Known limitation:* each modified file produces its own commit (Contents API behavior),
+   not one atomic multi-file commit. Acceptable for single-file HAL updates; would need a
+   Git Data (Trees) API rewrite for atomic multi-file commits if that becomes a requirement.
+
+3. **`generate_eco_pdf(report_data: str, part_number: str) -> dict`**
+   Generate a PDF (`reportlab`) and upload to bucket `eco-outputs`, object name
+   `ECO-<UTC timestamp>.pdf`. Pass the actual current UTC timestamp into the report content
+   explicitly — do not let the LLM invent a "Date Generated" value.
 
 ---
 
-## 5. `agent/main.py` — Eventarc Handler + Multi-Agent Orchestration
+## 5. `agent/main.py` — Eventarc Handler + Multi-Agent Pipeline
 
-The pipeline is split into three sequential agents for robustness. State is passed between them by parsing the structured JSON output of one stage and feeding it into the `new_message` of the next stage via independent `Runner` invocations. This allows independent retries if a stage fails.
+### Architecture
 
-1. **Agent Initialization:**
-   ```python
-   # Stage 1
-   triage_agent = Agent(
-       name="triage_agent",
-       model="gemini-3.5-flash",
-       instruction="Read the multi-page PDF natively attached and extract all distinct affected part numbers. Output `{\"parts\": [\"<part1>\", ...]}`.",
-   )
-   
-   # Stage 2
-   resolution_agent = Agent(
-       name="resolution_agent",
-       model="gemini-3.5-flash",
-       instruction="For each part number, query the inventory. Output `{\"parts\": [{\"part_number\": ..., \"found\": bool, ...}]}`. If found: false, do not invent replacements.",
-       tools=[query_firestore_inventory],
-   )
-   
-   # Stage 3
-   action_agent = Agent(
-       name="action_agent",
-       model="gemini-3.5-flash",
-       instruction="For parts with found: true, generate PR and ECO. Output `{\"parts\": [{\"part_number\": ..., \"replacement_found\": bool, \"pr_url\": ..., \"eco_url\": ..., \"status\": \"COMPLETED\"|\"NO_INVENTORY_MATCH\"}]}`.",
-       tools=[github_create_pr, generate_eco_pdf],
-   )
-   ```
+The pipeline is a **manually orchestrated 3-stage sequence**, not ADK's built-in
+`SequentialAgent` — empirical testing showed `SequentialAgent` combined with an outer retry
+loop cannot resume mid-sequence after a failure without a resumable-session backend that
+`InMemorySessionService` does not provide. Instead: three independent `Agent` + `Runner`
+pairs, sharing one `session_id` across all three invocations, with the text output of each
+stage parsed as JSON in code and explicitly re-injected as the `new_message` for the next
+stage.
 
-2. **Endpoint:** `POST /`, receives Eventarc CloudEvent. Read `ce-subject` header to get the
-   GCS object name. Also verify the Eventarc-issued OIDC token the same way as described in
-   Section 3 step 2.
+```python
+triage_agent = Agent(
+    name="triage_agent",
+    model="gemini-3.5-flash",
+    instruction=STAGE1_INSTRUCTION,
+)
 
-3. **Cost Guard:** before invoking the pipeline, check the uploaded PDF's size via the GCS SDK.
-   If it exceeds 5MB, log a `"Payload Too Large"` entry to Firestore collection `agent_runs`
-   with `status: "REJECTED_SIZE"` and return `200 OK` without invoking the LLM.
+resolution_agent = Agent(
+    name="resolution_agent",
+    model="gemini-3.5-flash",
+    instruction=STAGE2_INSTRUCTION,
+    tools=[query_firestore_inventory],
+)
 
-4. **Execution & Retries:** construct `gs://pcn-raw-documents/<object_name>`. Execute each agent in sequence.
-   - Use a helper `run_stage_with_retry` that initiates a `Runner` per agent, parses its output defensively, and retries the stage (not the whole pipeline) on failure.
-   - Stage 1 receives the multimodal PDF URI and outputs a list of parts.
-   - Stage 2 receives Stage 1's JSON and resolves inventory.
-   - Stage 3 receives Stage 2's JSON and performs external actions.
+action_agent = Agent(
+    name="action_agent",
+    model="gemini-3.5-flash",
+    instruction=STAGE3_INSTRUCTION,
+    tools=[github_create_pr, generate_eco_pdf],
+)
 
-5. **State Persistence:** write to Firestore collection `agent_runs` after Stage 3:
+session_service = InMemorySessionService()
+triage_runner = Runner(agent=triage_agent, app_name="pcn_triage", session_service=session_service)
+resolution_runner = Runner(agent=resolution_agent, app_name="pcn_triage", session_service=session_service)
+action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_service=session_service)
+```
+
+### Stage 1 — Triage
+- Tools: none. Reads the natively-attached PDF via `Part.from_uri(gcs_uri,
+  mime_type="application/pdf")` — full multimodal read, not text extraction, so scanned/
+  image-only PDFs work correctly. May span multiple pages; instruction must explicitly say
+  to check all pages, not assume page one has everything.
+- Output: `{"parts": ["<part_number_1>", ...]}`. Empty list if no part numbers found — never
+  force an output.
+
+### Stage 2 — Resolution
+- Tools: `query_firestore_inventory`.
+- For each part from Stage 1, resolve against Firestore.
+- Output: `{"parts": [{"part_number": ..., "found": bool, "replacement_part_numbers": [...],
+  "datasheet_uri": ..., "status": ...}, ...]}`.
+- **Must not invent or guess a replacement under any circumstances.** `found: false` is a
+  valid, expected outcome, not a failure state.
+
+### Stage 3 — Action
+- Tools: `github_create_pr`, `generate_eco_pdf`.
+- For each part where `found: true`: reason about the HAL change needed, call
+  `github_create_pr`, then `generate_eco_pdf`.
+- For each part where `found: false`: take no action for that part — no PR, no ECO.
+- Output per part: `{"part_number": ..., "replacement_found": bool, "pr_url": str|null,
+  "eco_url": str|null, "status": "COMPLETED"|"NO_INVENTORY_MATCH"}`.
+
+### Orchestration (`receive_event()`)
+1. Verify the Eventarc-issued OIDC token (same mechanism as Section 3 step 2, audience =
+   this service's own `SERVICE_URL`).
+2. Read `ce-subject` header for the GCS object name; construct
+   `gs://pcn-raw-documents/<object_name>`.
+3. **Cost guard:** check the PDF's size via the GCS SDK before invoking anything. If it
+   exceeds 5MB, or if the size check itself fails (e.g. `blob.reload()` error), write a
+   Firestore `agent_runs` entry with `status: "REJECTED_SIZE"` or
+   `"REJECTED_METADATA_ERROR"` respectively and return `200 OK` without invoking the LLM.
+   Fail closed — an unreadable size must not be treated as "small enough to proceed."
+4. Run each stage via `run_stage_with_retry(runner, session_id, message)`: 3 attempts,
+   exponential backoff, retrying only the failed stage — a Stage 2 failure must not re-invoke
+   Stage 1's (expensive, multimodal) call.
+5. Parse each stage's JSON output defensively before passing it to the next stage: strip
+   markdown code fences if present, and if parsing still fails, do not crash the whole run —
+   log the raw response and fall back gracefully (see Firestore schema below,
+   `status: "COMPLETED_UNSTRUCTURED"`).
+6. Log each stage's outcome with a distinct prefix (`[TRIAGE]`, `[RESOLUTION]`, `[ACTION]`)
+   so Cloud Run logs clearly show the pipeline progressing through three stages.
+7. After Stage 3, write one Firestore `agent_runs` document:
    ```json
    {
-       "gcs_uri": "str", 
-       "target_repo": "str", 
-       "extracted_parts": [
-           {
-               "part_number": "str",
-               "found": "bool",
-               "replacement_found": "bool",
-               "pr_url": "str|null",
-               "eco_url": "str|null",
-               "status": "COMPLETED|NO_INVENTORY_MATCH"
-           }
-       ], 
-       "timestamp": "<server timestamp>"
+     "gcs_uri": "str",
+     "target_repo": "str",
+     "extracted_parts": [
+       {
+         "part_number": "str",
+         "found": "bool",
+         "replacement_found": "bool",
+         "pr_url": "str|null",
+         "eco_url": "str|null",
+         "status": "COMPLETED|NO_INVENTORY_MATCH|COMPLETED_UNSTRUCTURED"
+       }
+     ],
+     "timestamp": "<server timestamp>"
    }
    ```
-
-6. Return `200 OK` with a JSON summary.
+8. Return `200 OK` with a JSON summary.
+9. **`GET /healthz`:** always returns `200 {"status": "ok"}`, no OIDC check on this route.
 
 ---
 
-## 6. Gmail Watch Renewal (Cloud Scheduler)
+## 6. Gmail Watch Renewal
 
-`users.watch()` expires every ~7 days. Build `scripts/gmail_watch_renew.py` as a small
-standalone script (same logic as the existing `scripts/gmail_oauth_setup.py`/`gmail_watch.py`
-reference, using the stored refresh token — no interactive login needed for renewal calls).
-Package it as a lightweight Cloud Run job or Cloud Function, triggered weekly by Cloud
-Scheduler. This is lower priority than the core pipeline — implement after Sections 3–5 are
-working, but before final submission if time allows, otherwise document it as a known
-limitation in the README.
+`users.watch()` expires every ~7 days. `scripts/gmail_watch_renew.py` re-registers it
+non-interactively using the stored refresh token (no browser login). Currently run manually;
+package as a Cloud Run Job triggered weekly by Cloud Scheduler when time allows — until then,
+this is a documented manual operational step, not a blocker.
 
 ---
 
 ## 7. Environment Variables
 
-All of the following must be read from environment variables — **never hardcode any value
-below in source code**. A fully populated `.env` already exists locally (gitignored, not part
-of this repo) with real values. Your job is to write code that reads these names; you do not
-need the actual values to write correct code.
+Read all of the following from environment variables — never hardcode any value in source
+code:
 
 ```
 GCP_PROJECT_ID
@@ -243,10 +287,8 @@ GCS_ECO_OUTPUTS_BUCKET
 SERVICE_URL
 ```
 
-Do not set or expect `GOOGLE_APPLICATION_CREDENTIALS` — Firestore/GCS/Vertex AI auth is via
-ADC (service-account impersonation locally, attached service account identity on Cloud Run).
-Write `.env.example` listing these same variable names with empty/placeholder values (no real
-secrets) so anyone cloning the repo knows what to fill in.
+Never set or expect `GOOGLE_APPLICATION_CREDENTIALS` — all GCP auth is via ADC. Keep
+`.env.example` listing these same names with placeholder (non-secret) values.
 
 ---
 
@@ -268,19 +310,22 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ## 9. CI/CD
 
 `.github/workflows/ci-validation.yml`: trigger on `push` and `pull_request`. Install
-dependencies for both `ingestor/` and `agent/`, run `flake8` on both, and run a basic import
-smoke test (`python -c "import main"` in each directory) as a build validation step. No
-deployment step in CI — deployment stays manual via `gcloud run deploy` for this hackathon.
+dependencies for both `ingestor/` and `agent/`, run `flake8` on both, run a basic import
+smoke test (`python -c "import main"` in each directory). No deployment step in CI —
+deployment stays manual via `gcloud run deploy`.
 
 ---
 
-## 11. Deployment Commands (Reference — Already Executed Once for Stubs)
+## 10. Deployment Commands (Reference)
 
-```
+```bash
 gcloud run deploy pcn-ingestor --source ./ingestor --region asia-south1 --no-allow-unauthenticated --project pcn-orchestrator-2026
 gcloud run deploy pcn-agent --source ./agent --region asia-south1 --no-allow-unauthenticated --project pcn-orchestrator-2026
 ```
 
-Both services keep `--no-allow-unauthenticated`. IAM bindings granting `pcn-agent-sa` the
-`roles/run.invoker` role on both services are already in place and do not need to be redone
-unless a service is deleted and recreated.
+Both services keep `--no-allow-unauthenticated`. The `roles/run.invoker` bindings for
+`pcn-agent-sa` on both services are already in place and do not need repeating unless a
+service is deleted and recreated. `SERVICE_URL` must be re-verified after any `--source`
+redeploy — Cloud Run occasionally reports a different canonical URL format, and a stale
+`SERVICE_URL` breaks OIDC audience verification (Section 3 step 2 / Section 5 step 1) with
+`401` errors, not an obvious deploy failure.
