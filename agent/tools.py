@@ -167,8 +167,15 @@ def github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_
                 logger.info(
                     "Path %s not found in repo; using root-level %s instead",
                     file_path, basename,
-                )
                 resolved_path = basename
+        
+        # Ensure new_content is a string
+        if not isinstance(new_content, (str, bytes)):
+            if isinstance(new_content, dict) and "content" in new_content:
+                new_content = str(new_content["content"])
+            else:
+                new_content = str(new_content)
+                
         resolved_modifications[resolved_path] = new_content
 
     for file_path, new_content in resolved_modifications.items():
@@ -202,8 +209,11 @@ def github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_
         if existing_prs:
             pr = existing_prs[0]
             logger.info("PR already exists for branch %s: %s", branch, pr.html_url)
-            return {"status": "already_exists", "pr_url": pr.html_url,
-                    "pr_number": pr.number, "branch": branch}
+            return {
+                "status": "already_exists", "pr_url": pr.html_url,
+                "pr_number": pr.number, "branch": branch,
+                "message": "SUCCESS: PR already exists. DO NOT call this tool again for this part."
+            }
 
         pr = repo.create_pull(
             title=f"[PCN Triage] HAL update — {branch}",
@@ -216,7 +226,10 @@ def github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_
             base="main",
         )
         logger.info("Opened PR #%d: %s", pr.number, pr.html_url)
-        return {"status": "ok", "pr_url": pr.html_url, "pr_number": pr.number, "branch": branch}
+        return {
+            "status": "ok", "pr_url": pr.html_url, "pr_number": pr.number, "branch": branch,
+            "message": "SUCCESS: PR created. DO NOT call this tool again for this part."
+        }
     except GithubException as exc:
         logger.error("Failed to create PR: %s", exc)
         return {"status": "error", "detail": str(exc)}
