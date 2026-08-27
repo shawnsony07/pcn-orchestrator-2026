@@ -6,8 +6,8 @@
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11-3776AB.svg?style=flat&logo=python&logoColor=white" alt="Python" /></a>
-  <a href="https://cloud.google.com/use-cases/ai-agents"><img src="https://img.shields.io/badge/Google_ADK-2.0-8A2BE2.svg?style=flat&logo=google&logoColor=white" alt="Google ADK" /></a>
-  <a href="https://ai.google.dev/"><img src="https://img.shields.io/badge/Vertex_AI-Gemini_3.5_Flash-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="Gemini" /></a>
+  <a href="https://github.com/google/adk-python"><img src="https://img.shields.io/badge/Google_ADK-2.0-8A2BE2.svg?style=flat&logo=google&logoColor=white" alt="Google ADK" /></a>
+  <a href="https://www.google.com/aclk?sa=L&ai=DChsSEwihgIrFs8GWAxVW0BYFHXquFBgYACICCAEQABoCdGw&co=1&ase=2&gclid=CjwKCAjwwL_UBhAjEiwAEhuT5OR5NzyRvCL1Jm6sfB7MydIxq850eHu8dM8ZokEinHLUEe1LrhezOhoCgtwQAvD_BwE&cid=CAASWuRolKzCU85YNIH08vwzi5fSprEB1LC1HNYq8tlNX4k0LqSsNT-t0lrtl7-3OuspF673u8mSduFPAnbFm38R22jARs16PDtt-6sJB4rIbxWdC_IaFrh5xRRCHg&cce=2&category=acrcp_v1_37&sig=AOD64_2T4DpUTN3iCxH8tBQ3j8uZWkiSQg&q&nis=4&adurl&ved=2ahUKEwjKrIPFs8GWAxXTs1YBHZ0DF44Q0Qx6BAgXEAE"><img src="https://img.shields.io/badge/Vertex_AI-Gemini_3.5_Flash-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="Gemini" /></a>
   <a href="https://cloud.google.com/"><img src="https://img.shields.io/badge/GCP-Cloud_Run_|_Firestore-FF9900.svg?style=flat&logo=googlecloud&logoColor=white" alt="GCP" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-Framework-009688.svg?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
 </p>
