@@ -205,16 +205,20 @@ def save_agent_run(
     gcs_uri: str, target_repo: str, response: str, status: str,
     extracted_parts: list = None,
 ) -> None:
-    get_db().collection(AGENT_RUNS_COLLECTION).add(
-        {
-            "gcs_uri": gcs_uri,
-            "target_repo": target_repo,
-            "response": response,
-            "status": status,
-            "extracted_parts": extracted_parts or [],
-            "timestamp": firestore.SERVER_TIMESTAMP,
-        }
-    )
+    db = get_db()
+    docs = list(db.collection(AGENT_RUNS_COLLECTION).where(filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
+    data = {
+        "gcs_uri": gcs_uri,
+        "target_repo": target_repo,
+        "response": response,
+        "status": status,
+        "extracted_parts": extracted_parts or [],
+        "timestamp": firestore.SERVER_TIMESTAMP,
+    }
+    if docs:
+        docs[0].reference.update(data)
+    else:
+        db.collection(AGENT_RUNS_COLLECTION).add(data)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -240,7 +244,7 @@ async def run_stage_with_retry(runner: Runner, session_id: str, new_message: gen
                 logger.error("%s run failed: %s", stage_name, exc)
                 raise
             delay = 2 ** attempt
-            logger.warning("Transient error in %s on attempt %d, retrying in %ds: %s", stage_name, attempt + 1, delay, exc)
+            logger.warning("%s Retry attempt %d/3 after transient error, retrying in %ds: %s", stage_name, attempt + 2, delay, exc)
             await asyncio.sleep(delay)
 
 def extract_json_from_response(response: str) -> dict:
@@ -281,7 +285,16 @@ async def receive_event(request: Request):
     gcs_uri = f"gs://{GCS_RAW_DOCUMENTS_BUCKET}/{object_name}"
     logger.info("Received Eventarc event for %s", gcs_uri)
 
-    # 3. Cost guard — check PDF size
+    # 3. Idempotency check
+    db = get_db()
+    existing_runs = list(db.collection(AGENT_RUNS_COLLECTION).where(filter=firestore.FieldFilter("gcs_uri", "==", gcs_uri)).limit(1).stream())
+    if existing_runs:
+        run_data = existing_runs[0].to_dict()
+        existing_status = run_data.get("status")
+        logger.info("Duplicate delivery skipped: agent_run already exists for %s with status %s", gcs_uri, existing_status)
+        return {"status": "ok", "detail": "duplicate delivery skipped"}
+
+    # 4. Cost guard — check PDF size
     try:
         bucket = get_gcs().bucket(GCS_RAW_DOCUMENTS_BUCKET)
         blob = bucket.blob(object_name)
@@ -297,7 +310,10 @@ async def receive_event(request: Request):
         save_agent_run(gcs_uri, GITHUB_TARGET_REPO, "Payload Too Large", "REJECTED_SIZE")
         return {"status": "ok", "detail": "rejected: payload too large"}
 
-    # 4. Run the ADK agents manually
+    # 5. Mark as IN_PROGRESS to prevent concurrent duplicates
+    save_agent_run(gcs_uri, GITHUB_TARGET_REPO, "Pipeline started", "IN_PROGRESS")
+
+    # 6. Run the ADK agents manually
     session_id = f"pcn-{object_name}-{datetime.now(tz=timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     extracted_parts = []
     final_response = ""
@@ -311,6 +327,7 @@ async def receive_event(request: Request):
         )
 
         # Stage 1: Triage
+        logger.info(f"[TRIAGE] Starting — reading PDF from {gcs_uri}")
         triage_runner = Runner(agent=triage_agent, app_name="pcn_triage", session_service=session_service)
         triage_prompt = (
             f"A new PCN document has been uploaded to {gcs_uri}.\n"
@@ -324,11 +341,13 @@ async def receive_event(request: Request):
                 genai_types.Part.from_text(text=triage_prompt)
             ],
         )
-        triage_response = await run_stage_with_retry(triage_runner, session_id, triage_message, "Stage 1 (Triage)")
+        triage_response = await run_stage_with_retry(triage_runner, session_id, triage_message, "[TRIAGE]")
         triage_data = extract_json_from_response(triage_response)
-        logger.info("Stage 1 completed. Parsed data: %s", json.dumps(triage_data))
+        parts = triage_data.get("parts", [])
+        logger.info(f"[TRIAGE] Completed — extracted parts: {triage_data}")
 
         # Stage 2: Resolution
+        logger.info(f"[RESOLUTION] Starting — resolving {len(parts)} part(s) against inventory")
         resolution_runner = Runner(agent=resolution_agent, app_name="pcn_triage", session_service=session_service)
         resolution_prompt = (
             f"The Triage Agent extracted the following part numbers:\n"
@@ -339,11 +358,15 @@ async def receive_event(request: Request):
             role="user",
             parts=[genai_types.Part.from_text(text=resolution_prompt)]
         )
-        resolution_response = await run_stage_with_retry(resolution_runner, session_id, resolution_message, "Stage 2 (Resolution)")
+        resolution_response = await run_stage_with_retry(resolution_runner, session_id, resolution_message, "[RESOLUTION]")
         resolution_data = extract_json_from_response(resolution_response)
-        logger.info("Stage 2 completed. Parsed data: %s", json.dumps(resolution_data))
+        resolved_parts = resolution_data.get("parts", [])
+        found_count = sum(1 for p in resolved_parts if p.get("found"))
+        not_found_count = len(resolved_parts) - found_count
+        logger.info(f"[RESOLUTION] Completed — {found_count} found, {not_found_count} not found")
 
         # Stage 3: Action
+        logger.info(f"[ACTION] Starting — processing {len(resolved_parts)} resolved part(s)")
         action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_service=session_service)
         action_prompt = (
             f"Target repository for HAL updates: {GITHUB_TARGET_REPO}\n"
@@ -355,9 +378,12 @@ async def receive_event(request: Request):
             role="user",
             parts=[genai_types.Part.from_text(text=action_prompt)]
         )
-        final_response = await run_stage_with_retry(action_runner, session_id, action_message, "Stage 3 (Action)")
+        final_response = await run_stage_with_retry(action_runner, session_id, action_message, "[ACTION]")
         final_data = extract_json_from_response(final_response)
-        logger.info("Stage 3 completed. Parsed data: %s", json.dumps(final_data))
+        action_parts = final_data.get("parts", [])
+        pr_count = sum(1 for p in action_parts if p.get("pr_url"))
+        eco_count = sum(1 for p in action_parts if p.get("eco_url"))
+        logger.info(f"[ACTION] Completed — {pr_count} PR(s) opened, {eco_count} ECO(s) generated")
 
         # Final Parsing and Normalization
         parts_list = final_data.get("parts", [])
