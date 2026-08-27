@@ -1,0 +1,12 @@
+#ifndef CONF_SENSOR_HAL_H
+#define CONF_SENSOR_HAL_H
+
+/*
+ * HAL Sensor Configuration Header
+ * Generated for PCN: ST-PCN-2026-1187
+ * Replacing obsolete BME280 with BME688.
+ */
+
+#define HAL_SENSOR_BME688
+
+#endif // CONF_SENSOR_HAL_H
