@@ -1,51 +1,45 @@
-%%{init: {'theme': 'default'}}%%
-flowchart TD
-    %% Define External Systems
-    subgraph External[External Services]
-        Gmail["Gmail API Push"]
-        Vertex["Vertex AI (Gemini 3.5 Flash)"]
-        GitHub["GitHub (Target Repo)"]
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor': '#EEEDFE',
+  'primaryTextColor': '#000000',
+  'primaryBorderColor': '#534AB7',
+  'lineColor': '#000000',
+  'textColor': '#000000',
+  'fontSize': '14px'
+}}}%%
+flowchart TB
+    subgraph External["External Services"]
+        Gmail[Gmail Inbox<br/>watched mailbox]
+        GitHub[GitHub<br/>target repo]
+        Vertex[Vertex AI<br/>Gemini 3.5 Flash]
     end
 
-    %% Define Orchestrator System
-    subgraph System[PCN Triage Orchestrator]
-        PubSub[("Pub/Sub (Message Broker)")]
-        Ingestor["pcn-ingestor (Cloud Run)"]
-        GCS_Raw[("pcn-raw-documents (GCS)")]
-        Eventarc{"Eventarc (Event Router)"}
-        Agent["pcn-agent (Cloud Run)"]
-        Firestore[("Firestore (NoSQL Database)")]
-        GCS_Eco[("eco-outputs (GCS)")]
+    subgraph GCP["Google Cloud Project: pcn-orchestrator-2026"]
+        PubSub[("Pub/Sub<br/>gmail-pcn-notifications")]
+        Ingestor[Cloud Run<br/>pcn-ingestor]
+        GCSRaw[("GCS<br/>pcn-raw-documents")]
+        Eventarc{{Eventarc<br/>pcn-gcs-trigger}}
+        Agent[Cloud Run<br/>pcn-agent<br/>3-stage pipeline]
+        Firestore[("Firestore<br/>agent_runs, inventory,<br/>gmail_sync_state")]
+        GCSEco[("GCS<br/>eco-outputs")]
     end
 
-    %% Define Relationships
-    Gmail -- "Sends push notification\n(HTTPS)" --> PubSub
-    PubSub -- "Invokes endpoint\n(OIDC Push)" --> Ingestor
-    Ingestor -- "Maintains sync state" --> Firestore
-    Ingestor -- "Uploads raw PDF" --> GCS_Raw
-    
-    GCS_Raw -- "Triggers on finalize" --> Eventarc
-    Eventarc -- "Invokes endpoint\n(CloudEvent)" --> Agent
-    
-    Agent -- "Extracts part numbers" --> Vertex
-    Agent <-- "Queries inventory\n& logs run state" --> Firestore
-    Agent -- "Creates PR" --> GitHub
-    Agent -- "Uploads ECO PDF" --> GCS_Eco
+    Gmail -- users.watch --> PubSub
+    PubSub -- push, OIDC --> Ingestor
+    Ingestor -- fetch message --> Gmail
+    Ingestor -- upload PDF --> GCSRaw
+    GCSRaw -- object finalized --> Eventarc
+    Eventarc -- trigger, OIDC --> Agent
+    Agent -- read PDF --> GCSRaw
+    Agent -- multimodal calls --> Vertex
+    Agent -- inventory query,<br/>run state --> Firestore
+    Agent -- open PR --> GitHub
+    Agent -- upload ECO PDF --> GCSEco
 
-    %% Styling
-    classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
-    classDef cloudRun fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff;
-    classDef database fill:#00796B,stroke:#004D40,stroke-width:2px,color:#fff;
-    classDef storage fill:#E3F2FD,stroke:#1E88E5,stroke-width:2px;
-    classDef broker fill:#FFF3E0,stroke:#FF9800,stroke-width:2px;
-    classDef external fill:#424242,stroke:#212121,stroke-width:2px,color:#fff;
-    classDef ai fill:#5E35B1,stroke:#311B92,stroke-width:2px,color:#fff;
-    classDef email fill:#E53935,stroke:#B71C1C,stroke-width:2px,color:#fff;
-
-    class Ingestor,Agent cloudRun;
-    class Firestore database;
-    class GCS_Raw,GCS_Eco storage;
-    class PubSub,Eventarc broker;
-    class GitHub external;
-    class Vertex ai;
-    class Gmail email;
+    classDef external fill:#FAECE7,stroke:#993C1D,color:#000000
+    classDef compute fill:#E6F1FB,stroke:#185FA5,color:#000000
+    classDef storage fill:#EAF3DE,stroke:#3B6D11,color:#000000
+    classDef eventing fill:#FAEEDA,stroke:#854F0B,color:#000000
+    class Gmail,GitHub,Vertex external
+    class Ingestor,Agent compute
+    class GCSRaw,GCSEco,Firestore storage
+    class PubSub,Eventarc eventing

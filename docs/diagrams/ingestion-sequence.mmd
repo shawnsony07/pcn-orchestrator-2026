@@ -1,28 +1,49 @@
-%%{init: {'theme': 'default'}}%%
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor': '#E6F1FB',
+  'primaryTextColor': '#000000',
+  'primaryBorderColor': '#185FA5',
+  'lineColor': '#000000',
+  'actorBkg': '#E6F1FB',
+  'actorBorder': '#185FA5',
+  'actorTextColor': '#000000',
+  'actorLineColor': '#000000',
+  'signalColor': '#000000',
+  'signalTextColor': '#000000',
+  'labelBoxBkgColor': '#FAEEDA',
+  'labelBoxBorderColor': '#854F0B',
+  'labelTextColor': '#000000',
+  'loopTextColor': '#000000',
+  'noteBorderColor': '#993C1D',
+  'noteBkgColor': '#FAECE7',
+  'noteTextColor': '#000000',
+  'activationBorderColor': '#185FA5',
+  'activationBkgColor': '#B5D4F4',
+  'sequenceNumberColor': '#000000'
+}}}%%
 sequenceDiagram
-    participant Gmail as Gmail API
-    participant PubSub as Pub/Sub (gmail-pcn-notifications)
+    participant Gmail as Gmail Inbox
+    participant PubSub as Pub/Sub Topic
     participant Ingestor as pcn-ingestor
-    participant GCS as pcn-raw-documents
+    participant GmailAPI as Gmail API
+    participant Firestore as Firestore
+    participant GCS as GCS Bucket
 
-    Gmail->>PubSub: Push Notification (historyId)
-    PubSub->>Ingestor: POST / (with OIDC Bearer Token)
-    
-    rect rgb(245, 245, 255)
-        Note over Ingestor: Verify OIDC Auth Signature
-        Ingestor->>Gmail: history.list(startHistoryId)
-        Gmail-->>Ingestor: Message IDs
-        Ingestor->>Gmail: messages.get(id)
-        Gmail-->>Ingestor: Message Payload & Headers
-        
-        Note over Ingestor: Verify 'From' against ALLOWED_SENDERS
-        
-        Ingestor->>Gmail: messages.attachments.get(id)
-        Gmail-->>Ingestor: Base64 PDF Data
-        
-        Note over Ingestor: Decode Base64url
-        Ingestor->>GCS: Upload <msg_id>.pdf
-        GCS-->>Ingestor: Success
+    Gmail->>PubSub: New mail arrives (watch() notification)
+    PubSub->>Ingestor: POST / (push, OIDC signed)
+    Ingestor->>Ingestor: Verify OIDC token audience
+    Ingestor->>Firestore: Read last_history_id
+    Ingestor->>GmailAPI: history.list(startHistoryId)
+    GmailAPI-->>Ingestor: New message ID(s)
+    Ingestor->>GmailAPI: messages.get(id)
+    GmailAPI-->>Ingestor: Message + headers
+    Ingestor->>Ingestor: Check From header vs ALLOWED_SENDERS
+    alt sender not allowed
+        Ingestor->>Firestore: Log rejection, advance history
+        Ingestor-->>PubSub: 200 OK
+    else sender allowed
+        Ingestor->>GmailAPI: attachments.get(PDF)
+        GmailAPI-->>Ingestor: PDF bytes (base64url)
+        Ingestor->>GCS: Upload PDF to pcn-raw-documents
+        Ingestor->>Firestore: Update last_history_id
+        Ingestor-->>PubSub: 200 OK
     end
-    
-    Ingestor-->>PubSub: 200 OK

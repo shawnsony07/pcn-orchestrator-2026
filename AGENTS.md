@@ -32,6 +32,11 @@ Email ingestion is Gmail API + Pub/Sub push, **not** SendGrid — there is no ow
 available for MX records, so the SendGrid Inbound Parse approach was abandoned in favor of
 watching a Gmail inbox directly.
 
+**Note on Pub/Sub and Eventarc delivery semantics:** both use at-least-once delivery. The same
+event can and will be redelivered. Section 5 below specifies a mandatory Firestore pre-check
+to make the pipeline idempotent against this — do not skip it, it has already caused a real
+duplicate-processing incident in production.
+
 ---
 
 ## 1. Tech Stack
@@ -132,18 +137,26 @@ whichever stage needs them, logic itself does not change per-stage:
    On no match, return exactly `{"found": false, "part_number": <input>}` — no other keys,
    no guessed data.
 
-2. **`github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_modifications: dict) -> dict`**
-   Use `PyGithub` via the GitHub Contents API (`repo.update_file()`), not a local git clone.
+2. **`github_create_pr(repo_url: str, part_number: str, gcs_object_name: str, hal_modifications: list[dict]) -> dict`**
+   Use `PyGithub` via the GitHub Contents API (`repo.update_file()` / `repo.create_file()`),
+   not a local git clone. `hal_modifications` MUST be a **list of `{"path": str, "content":
+   str}` objects**, never a `{path: content}` dictionary — passing the filename as a dict
+   key exposes it to the LLM function-calling schema layer's key-sanitization, which silently
+   mangles special characters (a `.` in `hal_bme280.h` was previously corrupted to `_`, and in
+   one case to a zero-width space). Passing the filename as a value avoids this entirely.
    Compute the branch name deterministically in code, never left to LLM discretion:
    `branch = f"pcn/{part_number}-{hashlib.sha256(gcs_object_name.encode()).hexdigest()[:6]}"`.
-   If the branch already exists (retrigger of the same source document), reuse it — add the
-   new commit(s) to the existing branch/PR rather than opening a duplicate PR. Open a PR
-   against `main` if one doesn't already exist for this branch. Auth via `GITHUB_TOKEN`
-   (fine-grained PAT, scoped to `Contents: write` + `Pull requests: write` on the target repo
-   only).
-   *Known limitation:* each modified file produces its own commit (Contents API behavior),
-   not one atomic multi-file commit. Acceptable for single-file HAL updates; would need a
-   Git Data (Trees) API rewrite for atomic multi-file commits if that becomes a requirement.
+   The exact expected filename pattern is `hal_<part_number_lowercase>.h` — make this explicit
+   in the calling agent's instruction (Section 5) so the model has one deterministic target
+   instead of inventing names across multiple attempts. If the branch already exists (retrigger
+   of the same source document), reuse it — add new commit(s) to the existing branch/PR rather
+   than opening a duplicate. Open a PR against `main` if one doesn't already exist for this
+   branch. Auth via `GITHUB_TOKEN` (fine-grained PAT, `Contents: write` + `Pull requests:
+   write` on the target repo only).
+   *Known limitation:* each modified file still produces its own commit (Contents API
+   behavior), not one atomic multi-file commit. Acceptable for single-file HAL updates; would
+   need a Git Data (Trees) API rewrite for atomic multi-file commits if that becomes a
+   requirement.
 
 3. **`generate_eco_pdf(report_data: str, part_number: str) -> dict`**
    Generate a PDF (`reportlab`) and upload to bucket `eco-outputs`, object name
@@ -160,9 +173,8 @@ The pipeline is a **manually orchestrated 3-stage sequence**, not ADK's built-in
 `SequentialAgent` — empirical testing showed `SequentialAgent` combined with an outer retry
 loop cannot resume mid-sequence after a failure without a resumable-session backend that
 `InMemorySessionService` does not provide. Instead: three independent `Agent` + `Runner`
-pairs, sharing one `session_id` across all three invocations, with the text output of each
-stage parsed as JSON in code and explicitly re-injected as the `new_message` for the next
-stage.
+pairs, sharing one `session_id`, with the text output of each stage parsed as JSON in code
+and explicitly re-injected as the `new_message` for the next stage.
 
 ```python
 triage_agent = Agent(
@@ -210,7 +222,9 @@ action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_servic
 ### Stage 3 — Action
 - Tools: `github_create_pr`, `generate_eco_pdf`.
 - For each part where `found: true`: reason about the HAL change needed, call
-  `github_create_pr`, then `generate_eco_pdf`.
+  `github_create_pr` with `hal_modifications` as a list of `{"path": "hal_<part_lower>.h",
+  "content": ...}` objects (see Section 4 — never a dict keyed by filename), then call
+  `generate_eco_pdf`.
 - For each part where `found: false`: take no action for that part — no PR, no ECO.
 - Output per part: `{"part_number": ..., "replacement_found": bool, "pr_url": str|null,
   "eco_url": str|null, "status": "COMPLETED"|"NO_INVENTORY_MATCH"}`.
@@ -220,25 +234,40 @@ action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_servic
    this service's own `SERVICE_URL`).
 2. Read `ce-subject` header for the GCS object name; construct
    `gs://pcn-raw-documents/<object_name>`.
-3. **Cost guard:** check the PDF's size via the GCS SDK before invoking anything. If it
+3. **Idempotency pre-check (mandatory, runs before anything else below):** query Firestore
+   `agent_runs` for an existing document with this exact `gcs_uri`. If one exists with a
+   terminal status (`COMPLETED`, `NO_INVENTORY_MATCH`, `COMPLETED_UNSTRUCTURED`,
+   `REJECTED_SIZE`, `REJECTED_METADATA_ERROR`), log this as a duplicate delivery and return
+   `200 OK` immediately — do not invoke Stage 1. This is required because Pub/Sub and
+   Eventarc both use at-least-once delivery and will redeliver the same event; without this
+   check, a redelivery re-runs the entire pipeline, doubling LLM spend and producing
+   duplicate ECO PDFs. Use judgment on the edge case of a matching document in a
+   non-terminal (in-progress) state arriving within a short window — bias toward not
+   re-running expensive work.
+4. **Cost guard:** check the PDF's size via the GCS SDK before invoking anything. If it
    exceeds 5MB, or if the size check itself fails (e.g. `blob.reload()` error), write a
    Firestore `agent_runs` entry with `status: "REJECTED_SIZE"` or
    `"REJECTED_METADATA_ERROR"` respectively and return `200 OK` without invoking the LLM.
    Fail closed — an unreadable size must not be treated as "small enough to proceed."
-4. Run each stage via `run_stage_with_retry(runner, session_id, message)`: 3 attempts,
+5. Run each stage via `run_stage_with_retry(runner, session_id, message)`: 3 attempts,
    exponential backoff, retrying only the failed stage — a Stage 2 failure must not re-invoke
-   Stage 1's (expensive, multimodal) call.
-5. Parse each stage's JSON output defensively before passing it to the next stage: strip
+   Stage 1's (expensive, multimodal) call. This has been validated against a real production
+   failure (an `AssertionError` inside `github_create_pr`), confirmed via logs showing only
+   the failed stage re-executed.
+6. Parse each stage's JSON output defensively before passing it to the next stage: strip
    markdown code fences if present, and if parsing still fails, do not crash the whole run —
    log the raw response and fall back gracefully (see Firestore schema below,
    `status: "COMPLETED_UNSTRUCTURED"`).
-6. Log each stage's outcome with a distinct prefix (`[TRIAGE]`, `[RESOLUTION]`, `[ACTION]`)
-   so Cloud Run logs clearly show the pipeline progressing through three stages.
-7. After Stage 3, write one Firestore `agent_runs` document:
+7. Log each stage's outcome with a distinct prefix (`[TRIAGE]`, `[RESOLUTION]`, `[ACTION]`)
+   at both start and completion — this is required, not optional, so Cloud Run logs clearly
+   show the pipeline progressing through three stages. Also prefix retry/backoff log lines
+   with the same stage tag.
+8. After Stage 3, write one Firestore `agent_runs` document:
    ```json
    {
      "gcs_uri": "str",
      "target_repo": "str",
+     "status": "str",
      "extracted_parts": [
        {
          "part_number": "str",
@@ -252,8 +281,8 @@ action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_servic
      "timestamp": "<server timestamp>"
    }
    ```
-8. Return `200 OK` with a JSON summary.
-9. **`GET /healthz`:** always returns `200 {"status": "ok"}`, no OIDC check on this route.
+9. Return `200 OK` with a JSON summary.
+10. **`GET /healthz`:** always returns `200 {"status": "ok"}`, no OIDC check on this route.
 
 ---
 

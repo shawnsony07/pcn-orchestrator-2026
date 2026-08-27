@@ -1,38 +1,29 @@
-%%{init: {'theme': 'default'}}%%
-stateDiagram-v2
-    direction TB
-    
-    [*] --> TriageAgent: CloudEvent (GCS finalize)
-    
-    state "Stage 1: Triage" as TriageAgent {
-        ParsePDF: Extract Parts (Gemini Multimodal)
-        ReturnParts: Output JSON {"parts": [...]}
-        ParsePDF --> ReturnParts
-    }
-    
-    TriageAgent --> ResolutionAgent: Pass Parsed JSON via new_message
-    
-    state "Stage 2: Resolution" as ResolutionAgent {
-        QueryDB: query_firestore_inventory
-        ReturnResolution: Output JSON {"parts": [{"found": bool}]}
-        QueryDB --> ReturnResolution
-    }
-    
-    ResolutionAgent --> ActionAgent: Pass Parsed JSON via new_message
-    
-    state "Stage 3: Action" as ActionAgent {
-        direction LR
-        CheckFound: Iterate Found Parts
-        CreateECO: generate_eco_pdf
-        CreatePR: github_create_pr
-        CheckFound --> CreateECO
-        CheckFound --> CreatePR
-    }
-    
-    ActionAgent --> WriteState: Output JSON
-    
-    state "State Persistence" as WriteState {
-        LogDB: Write to agent_runs (Firestore)
-    }
-    
-    WriteState --> [*]: Return 200 OK
+%%{init: {'theme':'base', 'themeVariables': {
+  'primaryColor': '#EAF3DE',
+  'primaryTextColor': '#000000',
+  'primaryBorderColor': '#3B6D11',
+  'lineColor': '#000000',
+  'textColor': '#000000',
+  'fontSize': '14px'
+}}}%%
+flowchart TD
+    A[Eventarc CloudEvent<br/>GCS object finalized] --> B{Verify OIDC token}
+    B -- invalid --> Z1[401 Unauthorized]
+    B -- valid --> C{Firestore check:<br/>agent_runs for this gcs_uri}
+    C -- terminal status exists --> Z2[Skip pipeline<br/>log duplicate delivery<br/>return 200 OK]
+    C -- no prior run --> D{Cost guard:<br/>PDF size check}
+    D -- over 5MB or unreadable --> Z3[Log REJECTED_SIZE /<br/>REJECTED_METADATA_ERROR<br/>return 200 OK]
+    D -- OK --> E["[TRIAGE] Stage 1<br/>reads PDF natively via<br/>Gemini multimodal"]
+    E --> F{Parts found?}
+    F -- none --> Z4[Log empty result<br/>return 200 OK]
+    F -- one or more --> G["[RESOLUTION] Stage 2<br/>query_firestore_inventory<br/>per part"]
+    G --> H["[ACTION] Stage 3<br/>github_create_pr +<br/>generate_eco_pdf<br/>per found part"]
+    H --> I[Write agent_runs document<br/>extracted_parts array]
+    I --> J[Return 200 OK]
+
+    classDef terminal fill:#FAECE7,stroke:#993C1D,color:#000000
+    classDef stage fill:#E6F1FB,stroke:#185FA5,color:#000000
+    classDef decision fill:#FAEEDA,stroke:#854F0B,color:#000000
+    class Z1,Z2,Z3,Z4 terminal
+    class E,G,H stage
+    class B,C,D,F decision
