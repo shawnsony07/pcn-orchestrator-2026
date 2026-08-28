@@ -492,6 +492,8 @@ Gmail push notification through to a raw PCN PDF landing in Cloud Storage — in
 
 <p align="center">
   <img src="docs/diagrams/ingestion-sequence.png" alt="Ingestion Sequence" width="900" />
+  <br>
+  <em>Gmail push notification → OIDC verification → sender allowlist check → Gmail fetch → GCS upload.</em>
 </p>
 
 <p align="center">
@@ -505,6 +507,8 @@ The full decision tree inside `pcn-agent`: OIDC verification, redelivery idempot
 
 <p align="center">
   <img src="docs/diagrams/multi-agent-flow.png" alt="Multi-Agent Pipeline Flow" width="700" />
+  <br>
+  <em>Every terminal outcome the pipeline can reach — including the two idempotency and cost-guard exit paths that run before Stage 1 ever fires.</em>
 </p>
 
 <p align="center">
@@ -518,6 +522,8 @@ The complete system in context — external services (Gmail, GitHub, Vertex AI) 
 
 <p align="center">
   <img src="docs/diagrams/system-architecture.png" alt="System Architecture" width="700" />
+  <br>
+  <em>Every internal GCP component and external service, and how data flows between them.</em>
 </p>
 
 ---
@@ -530,6 +536,8 @@ A real, complete run — not a mocked example. Source PDF: a genuinely scanned, 
 
 <p align="center">
   <img src="docs/images/cloud-run-logs-pcn-agent.png" alt="pcn-agent logs showing full TRIAGE/RESOLUTION/ACTION pipeline plus duplicate delivery skip" width="900" />
+  <br>
+  <em>One real run, start to finish — all three stages, plus a genuine Pub/Sub redelivery caught and skipped mid-log.</em>
 </p>
 
 **Resulting Firestore `agent_runs` document:**

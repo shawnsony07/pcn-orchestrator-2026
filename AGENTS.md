@@ -22,6 +22,11 @@ Already live:
 - Gmail API `users.watch()` registered for mailbox `shawngdg2005@gmail.com`, pushing to
   `gmail-pcn-notifications`. Expires every ~7 days — renewal is manual via
   `scripts/gmail_watch_renew.py` until a Cloud Scheduler job is added (see Section 6).
+- The Eventarc trigger's auto-generated Pub/Sub subscription has dead-lettering configured:
+  `--dead-letter-topic=pcn-dead-letter-topic --max-delivery-attempts=5`. A pull subscription
+  `pcn-dead-letter-sub` is attached to `pcn-dead-letter-topic` so any message that exhausts
+  retries is retained for inspection rather than silently discarded — a bare topic with no
+  subscription drops published messages immediately.
 - Local dev auth is via ADC impersonation (`gcloud auth application-default login
   --impersonate-service-account=pcn-agent-sa@pcn-orchestrator-2026.iam.gserviceaccount.com`).
   **No service account key files exist or can be created** — org policy
@@ -70,7 +75,10 @@ pcn-orchestrator-2026/
 │   ├── gmail_watch_renew.py      # non-interactive weekly watch() renewal
 │   └── seed_inventory.py         # seeds Firestore `inventory` collection with test data
 ├── test_pdfs/                    # sample PCN PDFs for manual/regression testing
-├── docs/diagrams/                # architecture diagram sources + rendered PNGs
+├── outputs/                      # real ECO PDFs downloaded from the agent's live runs, for reference
+├── docs/
+│   ├── diagrams/                 # architecture diagram sources (.mmd) + rendered PNGs
+│   └── images/                   # README screenshots
 ├── secrets/                      # gitignored, holds the Gmail OAuth client JSON
 ├── .github/workflows/
 │   └── ci-validation.yml
@@ -203,6 +211,8 @@ resolution_runner = Runner(agent=resolution_agent, app_name="pcn_triage", sessio
 action_runner = Runner(agent=action_agent, app_name="pcn_triage", session_service=session_service)
 ```
 
+**Expected warning (not a bug):** ADK will emit `WARNING: Event from an unknown agent: resolution_agent` (and similar for `triage_agent`) when a later-stage `Runner` loads session history authored by an earlier-stage agent it doesn't recognize. This is harmless — state is passed explicitly via `new_message`, not via session history reads. Do not attempt to suppress or work around it.
+
 ### Stage 1 — Triage
 - Tools: none. Reads the natively-attached PDF via `Part.from_uri(gcs_uri,
   mime_type="application/pdf")` — full multimodal read, not text extraction, so scanned/
@@ -322,6 +332,8 @@ Never set or expect `GOOGLE_APPLICATION_CREDENTIALS` — all GCP auth is via ADC
 ---
 
 ## 8. Dockerfiles
+
+**Key pip package name:** the ADK framework installs as `google-adk` (not `google-generativeai-adk`, not bundled inside `google-cloud-aiplatform`). Pin to `google-adk>=2.0.0,<3.0.0` in `agent/requirements.txt`.
 
 Both `ingestor/Dockerfile` and `agent/Dockerfile`:
 ```dockerfile
