@@ -27,3 +27,6 @@ Thumbs.db
 
 # Local logs / temp
 *.log
+
+# Video files
+demo_video.mp4

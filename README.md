@@ -12,6 +12,10 @@
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-Framework-009688.svg?style=flat&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
 </p>
 
+<p align="center">
+  <a href="https://youtu.be/KBR5mr7f8ro"><b>🎥 Watch the Demo Video</b></a>
+</p>
+
 **An autonomous, multi-agent pipeline that reads incoming Product Change Notifications, triages affected components, and ships firmware fixes — with no human in the loop.**
 
 Built using Google ADK 2.0, Gemini 3.5 Flash, Eventarc, Gmail API, Pub/Sub, Firestore, and Cloud Run.
